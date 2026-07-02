@@ -84,6 +84,58 @@ def sum_channels(obj,fyaml): #dict includes {fim0: fim_0,....}
             setattr(obj, channel_dict[key], summed)
         # except:
         #     print(f'{key} does not exits ')
+        
+        
+        
+def resolve_rois(rois_cfg, raw_data):
+    """
+    Patch signal ROI and channels from auto-detection; bg_roi always comes
+    from the YAML and is never touched.
+
+    Parameters
+    ----------
+    rois_cfg : dict
+        One detector block from the YAML.
+        Required keys: channels ('all' or list of ints), roi, bg_roi, auto_roi.
+    raw_data : np.ndarray
+        Shape (shots, channels, samples) or (shots, samples).
+
+    Returns
+    -------
+    dict — shallow copy of rois_cfg with channels + roi patched (if auto_roi).
+    """
+    cfg = dict(rois_cfg)
+
+    if not cfg.get('auto_roi', False):
+        return cfg                              # manual: channels + roi from YAML as-is
+
+    _, signal_rois, _ = find_fim_rois(
+        raw_data,
+        verbose=cfg.get('verbose', True),
+        return_reasons=True,
+    )
+
+    # channels the algorithm accepted (non-zero signal ROI)
+    accepted = [ch for ch, sig in enumerate(signal_rois) if sig != [0.0, 0.0]]
+
+    # channels field now acts as filter: 'all' means keep everything accepted
+    if cfg['channels'] != 'all':
+        accepted = [ch for ch in accepted if ch in cfg['channels']]
+
+    if not accepted:
+        import warnings
+        warnings.warn(
+            "auto_roi found no valid signal ROIs — falling back to manual values.",
+            RuntimeWarning,
+        )
+        return cfg
+
+    cfg['channels'] = accepted
+    cfg['roi'] = [[int(round(s)), int(round(e))] for s, e in 
+              (signal_rois[ch] for ch in accepted)]
+    # bg_roi intentionally left untouched
+
+    return cfg
 
 def normalise(dat, I0):
     '''
@@ -944,3 +996,192 @@ def get_CIE(Ecie,width,Einc,data_trans,std_trans):
     CIE     = np.nansum(data_trans[inds-width:inds+width,:],axis=0)
     CIE_std = np.sqrt(np.nansum(std_trans[inds-width:inds+width,:]**2, axis=0))
     return CIE, CIE_std
+
+
+
+
+"""
+Automatic ROI finder for FIM diode waveforms (finalized).
+
+Input
+-----
+fim_wf : np.ndarray
+    (shots, channels, samples)  multi-channel  (averaged over shots), or
+    (shots, samples)            one channel     (averaged over shots), or
+    (samples,)                  one already-averaged template.
+    The LAST axis is always the time/sample axis.
+
+Per channel, the function:
+  1. Builds a high-SNR template by averaging over shots.
+  2. Auto-detects the BACKGROUND ROI: the flat region at the left edge, ending
+     a few samples BEFORE the signal first departs from baseline (so no real
+     signal leaks into the background).
+  3. Subtracts the background mean from the template.
+  4. Identifies the FIRST oscillation after the background: the first
+     significant zero-crossing-bounded excursion (0 -> peak -> 0), of EITHER
+     sign. This first oscillation must be NEGATIVE -- if it is positive the
+     channel is rejected with signal ROI = [0.0, 0.0]. If it is negative and
+     contains the most-negative sample of the trace, the SIGNAL ROI is that
+     oscillation traced to its bounding zero crossings (sub-sample, rounded to
+     0.1). Otherwise the channel is rejected with [0.0, 0.0].
+
+Returns
+-------
+bg_rois     : list of [start, end] background windows, one per channel.
+signal_rois : list of [start, end] signal windows, one per channel
+              ([0.0, 0.0] when the first oscillation is not the deepest).
+"""
+
+import warnings
+
+import numpy as np
+
+
+def _first_sustained(mask, run=2):
+    """First index where `mask` is True for `run` consecutive samples."""
+    if run <= 1:
+        idx = np.flatnonzero(mask)
+        return int(idx[0]) if idx.size else None
+    win = np.convolve(mask.astype(int), np.ones(run, int), mode="valid")
+    hit = np.flatnonzero(win == run)
+    return int(hit[0]) if hit.size else None
+
+
+def _zero_between(y, a, b):
+    """Linearly interpolated zero crossing between samples a and b."""
+    ya, yb = float(y[a]), float(y[b])
+    if yb == ya:
+        return float(a)
+    return a + (-ya) / (yb - ya)
+
+
+def _channel_rois(trace, bg_seed=10, k=5.0, bg_margin=3, onset_frac=0.05,
+                  min_width=2, accept_frac=0.0):
+    """Background ROI + signal ROI + reason for one channel's averaged trace."""
+    trace = np.asarray(trace, dtype=float)
+    n = trace.size
+    finite = np.isfinite(trace)
+    if not finite.any():                   # dead / all-NaN channel
+        return [0.0, float(n - 1)], [0.0, 0.0], "dead_channel"
+    if not finite.all():                   # residual NaNs (a sample NaN in ALL
+        trace = trace.copy()               # shots): fill so argmin can't latch
+        trace[~finite] = np.median(trace[finite])   # onto a NaN
+
+    # ---- 2. background ROI: flat left region, ending before signal onset ----
+    seed = trace[:min(bg_seed, n)]
+    mu = float(seed.mean())
+    sigma = float(seed.std()) or 1e-12
+    peak = float(np.max(np.abs(trace - mu)))    # signal scale (peak |deviation|)
+
+    # A sample counts as signal only if it clears BOTH the noise floor (k*sigma)
+    # AND a fraction of the signal peak (onset_frac*peak). The second term means
+    # small bumps far below the signal -- e.g. 2-3 orders of magnitude down, not
+    # visible by eye -- stay part of the background instead of starting the ROI.
+    thr = max(k * sigma, onset_frac * peak)
+    onset = _first_sustained(np.abs(trace - mu) > thr, run=2)
+    if onset is None:                      # never leaves baseline -> no signal
+        return [0.0, float(n - 1)], [0.0, 0.0], "no_onset"
+    bg_end = max(onset - bg_margin, 1)
+    bg_roi = [0.0, float(bg_end)]
+
+    # ---- 3. subtract background mean ----
+    y = trace - float(trace[:bg_end].mean())
+    sigma_bg = float(trace[:bg_end].std()) or 1e-12
+    sig_thr = max(k * sigma_bg, onset_frac * peak)   # same floor for lobes
+
+    # ---- 4. first oscillation after background = first SIGNIFICANT lobe ----
+    # An oscillation is one zero-crossing-bounded excursion (0 -> peak -> 0).
+    # Collect significant lobes of EITHER sign, so a leading POSITIVE excursion
+    # is seen and rejected rather than silently skipped. Lobes narrower than
+    # `min_width` are dropped: a single-sample spike is a glitch, not an
+    # oscillation, and must not be allowed to count as the deepest feature.
+    cross = np.flatnonzero(y[:-1] * y[1:] < 0) + 1
+    bounds = np.concatenate(([0], cross, [n])).astype(int)
+    lobes = []                              # (start, end, peak_idx, sign)
+    for bi in range(len(bounds) - 1):
+        s, e = int(bounds[bi]), int(bounds[bi + 1]) - 1
+        if e < s or e < bg_end:             # skip anything inside the background
+            continue
+        if (e - s + 1) < min_width:         # skip single-sample spikes / glitches
+            continue
+        pk = s + int(np.argmax(np.abs(y[s:e + 1])))
+        if abs(y[pk]) > sig_thr:            # significant excursion (either sign)
+            lobes.append((s, e, pk, int(np.sign(y[pk]))))
+
+    if not lobes:
+        return bg_roi, [0.0, 0.0], "no_significant_lobe"
+
+    s0, e0, pk0, sign0 = lobes[0]           # THE first oscillation
+
+    # the first oscillation MUST be negative; a positive first lobe -> reject
+    if sign0 > 0:
+        return bg_roi, [0.0, 0.0], f"first_oscillation_positive(peak@{pk0})"
+
+    # Accept the first oscillation as the signal. By default (accept_frac=0.0)
+    # a deeper-but-later lobe -- ringing, a reflection, or a stray deep sample
+    # -- does NOT veto it. Set accept_frac > 0 to require the first oscillation
+    # to be at least that fraction as deep as the deepest negative lobe.
+    depth_first = abs(y[pk0])
+    depth_deepest = max(abs(y[pk]) for (s, e, pk, sg) in lobes if sg < 0)
+    if depth_first < accept_frac * depth_deepest:
+        return (bg_roi, [0.0, 0.0],
+                f"first_oscillation_too_shallow({depth_first / depth_deepest:.2f}"
+                f"<{accept_frac})")
+
+    # trace the first oscillation out to its bounding zero crossings (sub-sample)
+    left = _zero_between(y, s0 - 1, s0) if s0 > 0 else 0.0
+    right = _zero_between(y, e0, e0 + 1) if e0 < n - 1 else float(e0)
+    result = [int(round(left)), int(round(right))]
+    print(f"DEBUG _channel_rois returning: {result}, types: {type(result[0])}, {type(result[1])}")
+    return bg_roi, result, "ok"
+
+
+def find_fim_rois(fim_wf, bg_seed=10, k=5.0, bg_margin=3, onset_frac=0.05,
+                  min_width=2, accept_frac=0.0, verbose=False,
+                  return_reasons=False):
+    """Auto-find background and signal ROIs for every FIM channel.
+
+    Parameters
+    ----------
+    fim_wf    : waveforms. Accepted shapes:
+                  (shots, channels, samples) -> multi-channel, averaged over shots
+                  (shots, samples)           -> ONE channel, averaged over shots
+                  (samples,)                 -> one already-averaged template
+                The LAST axis must always be the time/sample axis.
+    bg_seed   : samples at the far left used to seed the baseline noise estimate.
+    k         : significance threshold in units of baseline sigma (used both for
+                signal-onset detection and for calling a lobe significant).
+    bg_margin : samples to back off before the onset when closing the background.
+
+    Returns
+    -------
+    bg_rois, signal_rois : two lists of [start, end], one entry per channel.
+    """
+    fim_wf = np.asarray(fim_wf, dtype=float)
+    if fim_wf.ndim == 1:                        # (samples,) -> one template
+        fim_wf = fim_wf[None, None, :]
+    elif fim_wf.ndim == 2:                      # (shots, samples) -> one channel
+        fim_wf = fim_wf[:, None, :]
+    elif fim_wf.ndim != 3:                      # expect (shots, channels, samples)
+        raise ValueError(f"fim_wf must be 1-3 dimensional, got {fim_wf.ndim}D.")
+
+    # Average over shots IGNORING NaNs. With a plain mean, a single NaN shot
+    # makes the whole channel-average NaN, np.argmin then lands on the NaN, and
+    # the channel is silently rejected as [0.0, 0.0].
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)   # all-NaN channels
+        template = np.nanmean(fim_wf, axis=0)             # (channels, samples)
+
+    n_channels, n_samples = template.shape
+
+    bg_rois, signal_rois, reasons = [], [], []
+    for ch in range(n_channels):
+        bg, sig, reason = _channel_rois(template[ch], bg_seed=bg_seed, k=k,
+                                        bg_margin=bg_margin, onset_frac=onset_frac,
+                                        min_width=min_width, accept_frac=accept_frac)
+        bg_rois.append(bg)
+        signal_rois.append(sig)
+        reasons.append(reason)
+    if return_reasons:
+        return bg_rois, signal_rois, reasons
+    return bg_rois, signal_rois
