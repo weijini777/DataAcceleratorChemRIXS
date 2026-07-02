@@ -76,6 +76,10 @@ class Integrating():
                     )
                 )
         # print(sum(self.andor_vls.count_mask))
+        ##### ZY_edits - add timestamp
+        self.top_timestamp = (np.asarray(intgrp['timestamp'])
+                              if self.yaml.get('timestamp_sort', False) and 'timestamp' in intgrp
+                              else None)
 
         self.get_scanvar(intgrp)
         self.countmask()
@@ -136,28 +140,41 @@ class Integrating():
         for detector, det_spec_dict in self.yaml['int_detectors'].items(): 
             useDask=det_spec_dict['useDask']
             det=getattr(self,detector)
+            #####ZY_edits - 062126 - add timestamp sorting and rolling as options before countmask, to fix potential issues with timestamp misalignment and Andor roll (if not already corrected in raw data)
+            # ----- SORT + ROLL on the FULL sequence, BEFORE the countmask -----
+            if self.yaml.get('timestamp_sort', False) and not useDask:
+                idx = np.argsort(self.top_timestamp)          # full timestamp, NOT [countmask]
+                for at in self.yaml[det_spec_dict['attrdict']]:
+                    setattr(det, at, getattr(det, at)[idx])
+                if (self.scantype == 'delay' or self.scantype == 'delay_fly'):
+                    setattr(det, 'delay', getattr(det, 'delay')[idx])
+                if (self.scantype == 'mono'  or self.scantype == 'mono_fly'):
+                    setattr(det, 'mono',  getattr(det, 'mono')[idx])
 
+                if self.yaml.get('andor_roll', False):
+                    setattr(det, 'full_area', np.roll(getattr(det, 'full_area'), 1, axis=0))
+                    for at in self.yaml[det_spec_dict['attrdict']]:
+                        setattr(det, at, getattr(det, at)[1:])
+                    if (self.scantype == 'delay' or self.scantype == 'delay_fly'):
+                        setattr(det, 'delay', getattr(det, 'delay')[1:])
+                    if (self.scantype == 'mono'  or self.scantype == 'mono_fly'):
+                        setattr(det, 'mono',  getattr(det, 'mono')[1:])
+
+            # ----- COUNTMASK now runs on the sorted+rolled data -----
             if len(self.yaml['expected_count']) == 0:
-                try:
-                    expected_count = st.mode(det.count, keepdims=False)[0]
-                except:
-                    expected_count = st.mode(det.count, keepdims=False)[0]
+                expected_count = st.mode(det.count, keepdims=False)[0]
             else:
                 expected_count = self.yaml['expected_count']
             countmask = (det.count<expected_count+2)&(det.count>expected_count-2)
-            # breakpoint()
             for at in self.yaml[det_spec_dict['attrdict']]:
-                # try:
                 a = getattr(det,at)
-                # except:
-                #     raise KeyError(f'{at} not saved under detector {det}')
                 if useDask:
                     mask_nd = countmask.reshape((countmask.shape[0],) + (1,) * (a.ndim - 1))
                     masked = a * mask_nd
                 else:
                     masked = a[countmask]
                 setattr(det, at, masked)
-        
+
             if (self.scantype=='delay' or self.scantype=='delay_fly'):
                 a = getattr(det,'delay')
                 if useDask:
@@ -203,12 +220,26 @@ class Integrating():
                     else:
                         #for integrating detectors, the mono encoder value is the sum over all shots
                         if self.scantype=='mono_fly':
-                            hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
+                            # hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
+                            ##### ZY_edits - 061926 - change count to accept+-1 counts
+                            expected_count = st.mode(det.count, keepdims=False)[0]
+                            hrencoder = getattr(det,'mono_encoder')/expected_count
                             tmp = np.polyval(mono_calib,hrencoder)
                             premirror = get_premirror_pitch(self.epics['MONO_premirror_pitch'])
                             mono = mono_energy(tmp,premirror)
                             # mono = np.polyval(self.yaml['mono_calib'],mono)
                             setattr(det, 'mono', mono)
+                            ##### ZY_edits - 061726 - read the run's nominal delay
+                            if self.yaml.get('TT_corr', {}).get('mono', False):
+                                dkey = self.yaml['TT_corr'].get('delay_key',
+                                                                self.yaml['scanvar']['delay'])
+                                try:
+                                    d = intgrp[detector][dkey][()]
+                                    setattr(det, 'delay_nominal',
+                                            float(np.nanmean(d.squeeze()/getattr(det,'count').squeeze())))
+                                except Exception:
+                                    print(f'WARN: nominal-delay key "{dkey}" missing -> mono-TT nominal=0')
+                                    setattr(det, 'delay_nominal', 0.0)
                         elif self.scantype=='mono':
                             #FIXME: how do I here pull the scanvar 
                             hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
@@ -231,6 +262,8 @@ class Integrating():
                 det = getattr(self,detector)
                 count = getattr(det,'count')
                 # countmask = getattr(det, 'countmask')
+                ##### ZY_edits - 062126 - change count to accept+-1 counts, fix for delay scan
+                # expected_count = st.mode(count.squeeze(), keepdims=False)[0]
                 tmp = intgrp[detector][delay_attr][()]
                 delay = tmp.squeeze()/count.squeeze()
                 print(f'delay shape {delay.shape}')

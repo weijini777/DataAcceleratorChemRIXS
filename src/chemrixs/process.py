@@ -149,7 +149,8 @@ class Reduced():
 
         if 'axis_svls' in self.data.yaml['int_detectors']:
             self.proc_svls()
-        
+        if 'fzp' in self.data.yaml:        ##### ZY_edits - 060226 - add transmission
+            self.proc_fzp()
         self.bin_intdet()
         
 
@@ -293,6 +294,11 @@ class Reduced():
         self.proc['axis_svls'] = {}
         self.proc['axis_svls']['on'] = norm_svls[evc_on==True] 
         self.proc['axis_svls']['off'] = norm_svls[evc_off==True] 
+        #####ZY_edits - 060126 - added "sum over sum" normalization
+        self.proc['axis_svls']['SV_on']  = svls_proc[evc_on==True]
+        self.proc['axis_svls']['SV_off'] = svls_proc[evc_off==True]
+        self.proc['axis_svls']['I0_on']  = I0[evc_on==True]
+        self.proc['axis_svls']['I0_off'] = I0[evc_off==True]
         if (np.nansum(evc_on)+np.nansum(evc_off))==0:
             self.proc['axis_svls']=norm_svls
 
@@ -320,7 +326,7 @@ class Reduced():
                 print('static run!')
                 if (np.nansum(onmask)+np.nansum(offmask))==0:
                     tmp_mean  = np.nanmean(norm,axis=0)
-                    tmp_sum = np.nanmsum(norm,axis=0)
+                    tmp_sum = np.nansum(norm,axis=0)
                     tmp_std   = np.nanstd(norm,axis=0)
                     
                 else:
@@ -350,6 +356,17 @@ class Reduced():
                     if detector == 'axis_svls':
                         scanvar_on, tmp_on_sum, tmp_on_sumerr, tmp_on_mean, tmp_on_std, counts_on = bin_svls(norm_on,scanvar[onmask],bins=self.data.yaml['bins'],scantype='step')
                         scanvar_off, tmp_off_sum, tmp_off_sumerr, tmp_off_mean, tmp_off_std, counts_off = bin_svls(norm_off,scanvar[offmask],bins=self.data.yaml['bins'],scantype='step')
+                        #####ZY_edits - 060126 bin unnormalized svls and per-shot I0 separately
+                        SV_on,  SV_off  = self.proc['axis_svls']['SV_on'],  self.proc['axis_svls']['SV_off']
+                        I0_on,  I0_off  = self.proc['axis_svls']['I0_on'],  self.proc['axis_svls']['I0_off']
+                        _, sumSV_on,  _, _, _, _ = bin_svls(SV_on,              scanvar[onmask],  bins=self.data.yaml['bins'], scantype='step')
+                        _, sumSV_off, _, _, _, _ = bin_svls(SV_off,             scanvar[offmask], bins=self.data.yaml['bins'], scantype='step')
+                        _, sumI0_on,  _, _, _, _ = bin_svls(I0_on[:, None],     scanvar[onmask],  bins=self.data.yaml['bins'], scantype='step')
+                        _, sumI0_off, _, _, _, _ = bin_svls(I0_off[:, None],    scanvar[offmask], bins=self.data.yaml['bins'], scantype='step')
+                        self.axis_svls_on_sumSV  = sumSV_on
+                        self.axis_svls_off_sumSV = sumSV_off
+                        self.axis_svls_on_sumI0  = sumI0_on.squeeze(axis=-1)
+                        self.axis_svls_off_sumI0 = sumI0_off.squeeze(axis=-1)
                     else:
                         scanvar_on, tmp_on_sum, tmp_on_mean, tmp_on_std, counts_on = bin_data(norm_on,scanvar[onmask],bins=self.data.yaml['bins'],scantype='step')
                         scanvar_off, tmp_off_sum, tmp_off_mean, tmp_off_std, counts_off = bin_data(norm_off,scanvar[offmask],bins=self.data.yaml['bins'],scantype='step')
@@ -363,7 +380,7 @@ class Reduced():
                     if self.data.yaml['TT_corr']['bool']:
                         tt_corr=np.loadtxt(f'proc/leading_edge_{self.data.run}.txt')
                         scanvar_on = (scanvar[onmask]).squeeze() - (tt_corr-self.data.yaml['TT_corr']['offset'])*5*1e-15 #add pixel converted to s
-                        scanvar_off = (scanvar[offmask]).squeeze() - (np.mean(tt_corr)-self.data.yaml['TT_corr']['offset'])*5*1e-15 #no TT correction for laser off shots but we wanna make sure the scan axis still matches
+                        scanvar_off = (scanvar[offmask]).squeeze() - (np.nanmean(tt_corr)-self.data.yaml['TT_corr']['offset'])*5*1e-15 #no TT correction for laser off shots but we wanna make sure the scan axis still matches
                         print('corrected delay')
                     else:
                         scanvar_on = (scanvar[onmask]).squeeze()
@@ -391,8 +408,52 @@ class Reduced():
                     # scanvar_off, tmp_off_sum, tmp_off_mean, tmp_off_std = bin_data(norm_off,scanvar_off,bins=self.data.yaml['bins'],scantype='fly')
 
                     if detector == 'axis_svls':
+                        _scanvar_on_pershot  = scanvar_on
+                        _scanvar_off_pershot = scanvar_off
                         scanvar_on, tmp_on_sum, tmp_on_sumerr, tmp_on_mean, tmp_on_std, counts_on = bin_svls(norm_on,scanvar_on,bins=self.data.yaml['bins'],scantype='fly')
                         scanvar_off, tmp_off_sum, tmp_off_sumerr, tmp_off_mean, tmp_off_std, counts_off = bin_svls(norm_off,scanvar_off,bins=self.data.yaml['bins'],scantype='fly')
+                        #####ZY_edits - 060126 bin unnormalized svls and per-shot I0 separately
+                        SV_on,  SV_off  = self.proc['axis_svls']['SV_on'],  self.proc['axis_svls']['SV_off']
+                        I0_on,  I0_off  = self.proc['axis_svls']['I0_on'],  self.proc['axis_svls']['I0_off']
+                        _, sumSV_on,  _, _, _, _ = bin_svls(SV_on,              _scanvar_on_pershot,  bins=self.data.yaml['bins'], scantype='fly')
+                        _, sumSV_off, _, _, _, _ = bin_svls(SV_off,             _scanvar_off_pershot, bins=self.data.yaml['bins'], scantype='fly')
+                        _, sumI0_on,  _, _, _, _ = bin_svls(I0_on[:, None],     _scanvar_on_pershot,  bins=self.data.yaml['bins'], scantype='fly')
+                        _, sumI0_off, _, _, _, _ = bin_svls(I0_off[:, None],    _scanvar_off_pershot, bins=self.data.yaml['bins'], scantype='fly')
+                        self.axis_svls_on_sumSV  = sumSV_on
+                        self.axis_svls_off_sumSV = sumSV_off
+                        self.axis_svls_on_sumI0  = sumI0_on.squeeze(axis=-1)
+                        self.axis_svls_off_sumI0 = sumI0_off.squeeze(axis=-1)
+                        ##### ZY_edits - 061726 - bin data in 3D, under sum over sum convention
+                        if (self.data.scantype=='mono_fly'
+                                and self.data.yaml['TT_corr']['bool']
+                                and self.data.yaml['TT_corr'].get('mono', False)):
+                            tt_corr = np.loadtxt(f'proc/leading_edge_{self.data.run}.txt')
+
+                            # fixed pump-probe delay for this run, set manually in yaml
+                            nominal = 0.0
+                            for row in self.data.yaml.get('mono_delay', []):
+                                row = np.asarray(row, dtype=float)
+                                if (self.data.run > row[0]) and (self.data.run < row[1]):
+                                    nominal = float(row[2])
+
+                            tau_on = nominal - (tt_corr - self.data.yaml['TT_corr']['offset'])*5*1e-15
+
+                            tb = self.data.yaml['time_bins']
+                            t_edges = np.linspace(float(tb[1][0]), float(tb[1][1]), int(tb[1][2]))
+                            it = np.digitize(tau_on, t_edges) - 1
+                            nT = len(t_edges) - 1
+
+                            sumSV_T, sumI0_T = [], []
+                            for k in range(nT):
+                                sel = (it == k)
+                                _, sSV, _, _, _, _ = bin_svls(SV_on[sel], _scanvar_on_pershot[sel],
+                                                              bins=self.data.yaml['bins'], scantype='fly')
+                                _, sI0, _, _, _, _ = bin_svls(I0_on[sel][:, None], _scanvar_on_pershot[sel],
+                                                              bins=self.data.yaml['bins'], scantype='fly')
+                                sumSV_T.append(sSV)
+                                sumI0_T.append(sI0.squeeze(axis=-1))
+                            self.axis_svls_on_ET_sumSV = np.stack(sumSV_T)   # (nT, nE, emission)
+                            self.axis_svls_on_ET_sumI0 = np.stack(sumI0_T)   # (nT, nE)
 
                     else:
                         scanvar_on, tmp_on_sum, tmp_on_mean, tmp_on_std, counts_on = bin_data(norm_on,scanvar_on,bins=self.data.yaml['bins'],scantype='fly')
@@ -426,6 +487,58 @@ class Reduced():
                     setattr(self,'scanvar_off',scanvar_off)
                     setattr(self,'counts_on',counts_on)
                     setattr(self,'counts_off',counts_off)
+
+
+    def proc_fzp(self):  ##### ZY_edits - 060226 - add transmission
+        '''
+        Reduce the FZP Piranha transmission detector. It rides under
+        /intg/axis_svls as fzp_piranha_sum_full_area (loaded via axis_svls_dict['fzp']),
+        so it is already countmask-aligned with the SVLS frames, eventcodes and I0.
+
+        '''
+        roi        = self.data.yaml['fzp']['roi']
+        offset_roi = self.data.yaml['fzp']['offset_roi']
+        det        = self.data.integrating.axis_svls
+
+        fzp = np.asarray(det.fzp, dtype=float)                       # (shots, pixels)
+
+        # per-shot pedestal from the dark region, then integrate the peak -> scalar/shot
+        ped   = np.nanmean(fzp[:, offset_roi[0]:offset_roi[1]], axis=1)
+        I_fzp = np.nansum(fzp[:, roi[0]:roi[1]] - ped[:, np.newaxis], axis=1)
+
+        # transmitted intensity / incident I0 (same I0 used for the SVLS)
+        I0 = det.I0
+        norm_fzp = I_fzp / I0 if self.norm else I_fzp
+
+        # on/off split (identical rule to proc_svls)
+        expected_count = st.mode(det.count, keepdims=False)[0]
+        evc     = det.eventcodes
+        evc_on  = np.asarray([evc[:, self.data.yaml['evc'][True]]  / expected_count > 0.5]).squeeze()
+        evc_off = np.asarray([evc[:, self.data.yaml['evc'][False]] / expected_count > 0.5]).squeeze()
+
+        self.proc['fzp'] = {'on': norm_fzp[evc_on == True],
+                            'off': norm_fzp[evc_off == True]}
+
+        # ---- bin the scalar vs the scan variable ----
+        # NOTE: bin_data's 1-D path is broken (indexes a 1-D array as [i,:]), so feed it
+        # an (N,1) column and squeeze the result back to 1-D.
+        sct, bins = self.data.scantype, self.data.yaml['bins']
+        bintype = 'fly' if 'fly' in sct else ('step' if sct in ('mono', 'delay') else 'static')
+        scanvar = getattr(det, 'mono', None) if 'mono' in sct else getattr(det, 'delay', None)
+
+        if (np.nansum(evc_on) + np.nansum(evc_off)) == 0:           # no laser split
+            self.proc['fzp'] = norm_fzp
+            if scanvar is not None:
+                _, s, m, sd, _ = bin_data(norm_fzp[:, None], scanvar.squeeze(), bins=bins, scantype=bintype)
+                self.fzp_sum, self.fzp_mean, self.fzp_std = s.squeeze(), m.squeeze(), sd.squeeze()
+        else:
+            sv_on  = scanvar[evc_on].squeeze()
+            sv_off = scanvar[evc_off].squeeze()
+            _, s_on,  m_on,  sd_on,  _ = bin_data(self.proc['fzp']['on'][:,  None], sv_on,  bins=bins, scantype=bintype)
+            _, s_off, m_off, sd_off, _ = bin_data(self.proc['fzp']['off'][:, None], sv_off, bins=bins, scantype=bintype)
+            self.fzp_on_sum,  self.fzp_off_sum  = s_on.squeeze(),  s_off.squeeze()
+            self.fzp_on_mean, self.fzp_off_mean = m_on.squeeze(),  m_off.squeeze()
+            self.fzp_on_std,  self.fzp_off_std  = sd_on.squeeze(), sd_off.squeeze()
 
     def save_dat(self):
         print('saving data')
