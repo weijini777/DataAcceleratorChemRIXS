@@ -75,8 +75,8 @@ class Integrating():
                         chunks=det_spec_dict['chunks']
                     )
                 )
-        # print(sum(self.andor_vls.count_mask))
-        ##### ZY_edits - add timestamp
+        # # print(sum(self.andor_vls.count_mask))
+        # ##### ZY_edits - add timestamp
         self.top_timestamp = (np.asarray(intgrp['timestamp'])
                               if self.yaml.get('timestamp_sort', False) and 'timestamp' in intgrp
                               else None)
@@ -151,21 +151,30 @@ class Integrating():
                 if (self.scantype == 'mono'  or self.scantype == 'mono_fly'):
                     setattr(det, 'mono',  getattr(det, 'mono')[idx])
 
+            #####ZY_edits - 062126 - add timestamp sorting and rolling as options before countmask, to fix potential issues with timestamp misalignment and Andor roll (if not already corrected in raw data)
+            # ----- SORT + ROLL on the FULL sequence, BEFORE the countmask -----
+                    setattr(det, at, getattr(det, at)[idx])
+                if (self.scantype == 'delay' or self.scantype == 'delay_fly'):
+                    setattr(det, 'delay', getattr(det, 'delay')[idx])
+                if (self.scantype == 'mono'  or self.scantype == 'mono_fly'):
+                    setattr(det, 'mono',  getattr(det, 'mono')[idx])
+
                 if self.yaml.get('andor_roll', False):
+                    print('hey yes doing the rolling')
                     setattr(det, 'full_area', np.roll(getattr(det, 'full_area'), 1, axis=0))
                     for at in self.yaml[det_spec_dict['attrdict']]:
                         setattr(det, at, getattr(det, at)[1:])
                     if (self.scantype == 'delay' or self.scantype == 'delay_fly'):
-                        setattr(det, 'delay', getattr(det, 'delay')[1:])
-                    if (self.scantype == 'mono'  or self.scantype == 'mono_fly'):
-                        setattr(det, 'mono',  getattr(det, 'mono')[1:])
+                        if (self.scantype == 'mono'  or self.scantype == 'mono_fly'):
+                            setattr(det, 'mono',  getattr(det, 'mono')[1:])
+#########end changes
 
-            # ----- COUNTMASK now runs on the sorted+rolled data -----
             if len(self.yaml['expected_count']) == 0:
                 expected_count = st.mode(det.count, keepdims=False)[0]
             else:
                 expected_count = self.yaml['expected_count']
-            countmask = (det.count<expected_count+2)&(det.count>expected_count-2)
+            countmask = (det.count<=expected_count+1)&(det.count>=expected_count-1)
+            # breakpoint()
             for at in self.yaml[det_spec_dict['attrdict']]:
                 a = getattr(det,at)
                 if useDask:
@@ -193,90 +202,6 @@ class Integrating():
                     masked = a[countmask]
                 setattr(det, 'mono', masked)
 
-    # def get_scanvar(self,intgrp):
-    #     # if there is not the correct scan type then, do not process
-    #     if (self.scantype=='mono' or self.scantype=='mono_fly'):
-    #         # if the mono_calib key in "roi_input.yml" is empty then that means not calibrated yet
-    #         if len(self.yaml['mono_calib'])==0:
-    #             print('mono is not calibrated')
-    #             # NOTE: create a detector object, then divide shot-to-shot sum by counts per integrated shot to yield true average per shot
-    #             for detector in self.yaml['int_detectors']: 
-    #                 det = getattr(self,detector)
-    #                 hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
-    #                 # set the 'mono' attribute in detector as this corrected per shot value
-    #                 setattr(det, 'mono', hrencoder)
-    #         else:
-    #             # If the mono_calib key in "roi_input.yml" is not empty, then use it for calibration
-    #             for detector in self.yaml['int_detectors']: 
-    #                 det = getattr(self,detector)
-    #                 mono_calib_coeff=[]
-    #                 # NOTE: loop through all mono calibration configurations, for example:
-    #                 # run 1 - 81, 82 - 150, 151 - 253. then iterator would be np.arange(3)
-    #                 for i in np.arange(len(self.yaml['mono_calib'])):
-    #                     mono_config = np.asarray(self.yaml['mono_calib'][i])
-    #                     # TODO: is ther aare reason using np.logical_and? is it faster than just normal python
-    #                     # NOTE: np.logical_and is slower as we are not vectorizing over arrays here, we are looping through one by one
-    #                     if (self.run>=mono_config[0]) and (self.run<=mono_config[1]):
-    #                         mono_calib_coeff = mono_config[2:4]
-    #                 if len(mono_calib_coeff)==0:
-    #                     print('mono is not calibrated for this run')
-    #                     for detector in self.yaml['int_detectors']: 
-    #                         det = getattr(self,detector)
-    #                         hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
-    #                         setattr(det, 'mono', hrencoder)
-    #                 else:
-    #                     #for integrating detectors, the mono encoder value is the sum over all shots
-    #                     if self.scantype=='mono_fly':
-    #                         # hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
-    #                         ##### ZY_edits - 061926 - change count to accept+-1 counts
-    #                         expected_count = st.mode(det.count, keepdims=False)[0]
-    #                         hrencoder = getattr(det,'mono_encoder')/expected_count
-    #                         tmp = np.polyval(mono_calib_coeff,hrencoder)
-    #                         premirror = get_premirror_pitch(self.epics['MONO_premirror_pitch'])
-    #                         mono = mono_energy(tmp,premirror)
-    #                         # mono = np.polyval(self.yaml['mono_calib'],mono)
-    #                         setattr(det, 'mono', mono)
-    #                         ##### ZY_edits - 061726 - read the run's nominal delay
-    #                         if self.yaml.get('TT_corr', {}).get('mono', False):
-    #                             dkey = self.yaml['TT_corr'].get('delay_key',
-    #                                                             self.yaml['scanvar']['delay'])
-    #                             try:
-    #                                 d = intgrp[detector][dkey][()]
-    #                                 setattr(det, 'delay_nominal',
-    #                                         float(np.nanmean(d.squeeze()/getattr(det,'count').squeeze())))
-    #                             except Exception:
-    #                                 print(f'WARN: nominal-delay key "{dkey}" missing -> mono-TT nominal=0')
-    #                                 setattr(det, 'delay_nominal', 0.0)
-    #                     elif self.scantype=='mono':
-    #                         #FIXME: how do I here pull the scanvar 
-    #                         hrencoder = getattr(det,'mono_encoder')/getattr(det,'count')
-    #                         tmp = np.polyval(mono_calib_coeff,hrencoder)
-    #                         premirror = get_premirror_pitch(self.epics['MONO_premirror_pitch'])
-    #                         mono = mono_energy(tmp,premirror)
-    #                         # mono = np.polyval(self.yaml['mono_calib'],mono)
-    #                         setattr(det, 'mono', mono)
-    #                         # mono = np.polyval(self.yaml['mono_calib'],hrencoder)
-    #                         # setattr(det, 'mono', mono)
-    #     # if the runs are delay or delay_fly runs
-    #     elif (self.scantype=='delay' or self.scantype==('delay_fly')):
-    #         if self.scantype=='delay':
-    #             delay_attr = self.yaml['scanvar']['delay']
-    #         elif self.scantype=='delay_fly':
-    #             # FIXME: Is the delay fly scanvar not delay_fly but is also delay
-    #             delay_attr = self.yaml['scanvar']['delay']
-    #         #np.logical_or(scan_var_name =='lxt',scan_var_name == 'lxt_ttc')
-    #         for detector in self.yaml['int_detectors']: 
-    #             det = getattr(self,detector)
-    #             count = getattr(det,'count')
-    #             # countmask = getattr(det, 'countmask')
-    #             ##### ZY_edits - 062126 - change count to accept+-1 counts, fix for delay scan
-    #             # expected_count = st.mode(count.squeeze(), keepdims=False)[0]
-    #             tmp = intgrp[detector][delay_attr][()]
-    #             delay = tmp.squeeze()/count.squeeze()
-    #             print(f'delay shape {delay.shape}')
-    #             setattr(det, 'delay', delay)
-    #     else:
-    #         print('scanvariable is unkown, binning not possible')
 
 
             

@@ -1,3 +1,6 @@
+timestamp_sort: True
+andor_roll: True
+
 #If BG has been reduced, define path here:
 red_bg_path: ''
 
@@ -9,14 +12,11 @@ TT_corr: {bool: False, offset: 1100}
 
 #define binning
 bins: ['bin_edges', 
-        [-2e-12,5e-12,24]] ## py run 1-146
-        # [-2e-12,5e-12,35]]
-        # [-2e-12,3.1e-12,34]]
-        # [-1e-12,4.7e12,16]]
-        # [392,402,40]] #['bin_width', 0.5e-12] #['Nbins', 15]
+        [-3e-12,3e-12,30]] 
+        # [392,402,40]] [521,530,35] #[393,400,40] [520,530,45]] # [-3e-12,3e-12,30]#['bin_width', 0.5e-12] #['Nbins', 15]
 
 #define eventcodes for on and off
-evc: {on: 273, off: 272, any: 274}
+evc: {on: 272, off: 273, any: 274}
 
 #define scan variables
 scanvar: {mono: 'mono_ev', 
@@ -25,18 +25,16 @@ scanvar: {mono: 'mono_ev',
         delay_fly: 'lxt_ttc',
         waveplate: 'lm2k2_inj_mp1_att1_wp1'}
 
-mono_calib: [[1,87,-6.71704103e-03 , 1.57383812e+05], #run13
-            [87,146,-6.70554623e-03,  1.57382548e+05], #run105
-            [146,192,-6.64521548e-03,  1.57374534e+05], #run147
-            [192,253,-6.72163026e-03, 1.57384569e+05]] #run194
+mono_calib: [[1,59,-6.68728698e-03,  1.57380907e+05],
+            [60,105,-6.66539114e-03,  1.57380901e+05],
+            [106,126,-6.69253862e-03,  1.57378184e+05],
+            [107,500,-6.66360141e-03,  1.57359964e+05]]
 
 
-# emi_calib: [[106,126,-0.036644986965679, 400.5108021860192],] (HBQ)
-emi_calib: [[1,87,-0.09767442, 738.974419],
-            [87,146,-0.08936170, 735.308511],
-            [146,192,-0.08400000, 733.700000],
-            [192,253,-0.08571429, 734.557143]]
-
+emi_calib: [[1,59,-0.055131651665805984, 543.0714871233063], #(-0.043408072353699215, 539.8638611428393)
+            [60,105,-0.04413579456975017, 540.09571088171],
+            [106,127,-0.036644986965679, 400.5108021860192],
+            [128,500,-0.035291, 406.028]]
             
 #Defining ROIs for the different detectors
 apd:   { channels: [5,7], roi: [[65, 75],[65, 75]],  bg_roi: [0,60]}
@@ -44,7 +42,7 @@ fim0:   { channels: [5,6], roi: [[67, 72],[66, 73]],  bg_roi: [0,60]}
 fim1:   { channels: [5,6,7], roi: [[62, 66],[58, 66],[60, 66]],  bg_roi: [0,55]}
 andor_vls: {roi: [1400,1600,100,150], offset_roi: [1500,1600], threshold: [3,10000], rot_angle: 4, rot_crop: [11:510]} # first 2 values used both 2D and 3D, last two only for 3D
 andor_dir: {roi: [700,1300], offset_roi: [400,500]}  # first 2 values used both 2D and 3D, last two only for 3D
-svls: {roi: [2000,6000], offset_roi: [20,100], threshold: [0,5000]}  # first 2 values used both 2D and 3D, last two only for 3D
+svls: {roi: [2000,6000], offset_roi: [20,100], threshold: [0,100000000]}  # first 2 values used both 2D and 3D, last two only for 3D
 
 
 #Which detectors to be loaded/processed:

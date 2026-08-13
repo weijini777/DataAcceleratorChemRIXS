@@ -1,0 +1,20 @@
+### Solid Targets, Run 13, 194: ######
+
+Main feature: 703.3 - 704.8
+
+Fim0: Channels = [4, 5] ; rois = [[66, 73], [65, 73]]
+Fim1: Channels = [4, 5, 6] ; rois = [[61,66],[57,70],[59,67]]
+Apds: Channels = [2] ; rois = [[143, 160]]
+
+
+### Mono Fly Scans, Runs 112 - 145 #####
+
+A bleach: 700.3 - 700.8
+C feature: 705.6 - 706.8
+
+Fim0: Channels = [5, 6] ;    rois = [[65, 73],[66, 71]]
+Fim1: Channels = [5, 6, 7] ; rois: [[57, 70], [59, 67], [61, 66]]
+Apds: Channels = [7] ;       rois: [[52, 65]]
+      Channels = [3] ;       rois: [[50, 95]]
+fzp: rois = [1000, 1150], bg_roi_0 = [0,900], bg_roi_1 = [1300, 2000]
+      split happens at pixel 1024 to 1025. so include pixel 1024, [0,1024] works perfect
