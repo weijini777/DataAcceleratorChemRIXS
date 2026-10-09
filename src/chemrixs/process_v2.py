@@ -205,7 +205,7 @@ class Reduced():
             svls_proc = svls_full
             delattr(self.bg.integrating.axis_svls,'full_area')
             
-        svls_norm = np.nansum(svls_proc, axis = 1) / I0
+        svls_norm = svls_proc / I0[:, np.newaxis]   
             
         # =========== Define the Masks ====================================
         laser_on = self.m.laser_on
@@ -343,7 +343,7 @@ class Reduced():
         fzp_on, fzp_off = z(), z()
         
         for i in range(num_bins):
-            on_mask, off_mask = (mono_bin_idx_mask == i & laser_on), (mono_bin_idx_mask == i & laser_off)
+            on_mask, off_mask = (mono_bin_idx_mask == i) & laser_on, (mono_bin_idx_mask == i) & laser_off
             fzp_on[i] = np.nanmean(fzp_norm[on_mask])
             fzp_off[i] = np.nanmean(fzp_norm[off_mask])
         

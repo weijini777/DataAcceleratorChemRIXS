@@ -6,6 +6,7 @@ import random
 
 from scipy.optimize import curve_fit
 
+
 def sumchan_helper(raw_fims,rois):
     '''
     Function. that does the actual summing of fim and crix channels
@@ -84,58 +85,6 @@ def sum_channels(obj,fyaml): #dict includes {fim0: fim_0,....}
             setattr(obj, channel_dict[key], summed)
         # except:
         #     print(f'{key} does not exits ')
-        
-        
-        
-def resolve_rois(rois_cfg, raw_data):
-    """
-    Patch signal ROI and channels from auto-detection; bg_roi always comes
-    from the YAML and is never touched.
-
-    Parameters
-    ----------
-    rois_cfg : dict
-        One detector block from the YAML.
-        Required keys: channels ('all' or list of ints), roi, bg_roi, auto_roi.
-    raw_data : np.ndarray
-        Shape (shots, channels, samples) or (shots, samples).
-
-    Returns
-    -------
-    dict — shallow copy of rois_cfg with channels + roi patched (if auto_roi).
-    """
-    cfg = dict(rois_cfg)
-
-    if not cfg.get('auto_roi', False):
-        return cfg                              # manual: channels + roi from YAML as-is
-
-    _, signal_rois, _ = find_fim_rois(
-        raw_data,
-        verbose=cfg.get('verbose', True),
-        return_reasons=True,
-    )
-
-    # channels the algorithm accepted (non-zero signal ROI)
-    accepted = [ch for ch, sig in enumerate(signal_rois) if sig != [0.0, 0.0]]
-
-    # channels field now acts as filter: 'all' means keep everything accepted
-    if cfg['channels'] != 'all':
-        accepted = [ch for ch in accepted if ch in cfg['channels']]
-
-    if not accepted:
-        import warnings
-        warnings.warn(
-            "auto_roi found no valid signal ROIs — falling back to manual values.",
-            RuntimeWarning,
-        )
-        return cfg
-
-    cfg['channels'] = accepted
-    cfg['roi'] = [[int(round(s)), int(round(e))] for s, e in 
-              (signal_rois[ch] for ch in accepted)]
-    # bg_roi intentionally left untouched
-
-    return cfg
 
 def normalise(dat, I0):
     '''
@@ -169,6 +118,14 @@ def normalise(dat, I0):
 
 
 def bin_data(data,bin_axis,bins,scantype='fly'):
+    
+    
+    ## JW edit: instead of being Nbins, bin_wdith, or bin_edges, we can just have 2 settings, uniform or bin_edges
+    # bin_range 
+    # unifrom requires #bins. 
+    # bin_edges requires a list of the bin edges that are already custom ready.
+    
+    # the scantype for "step" and "fly" are still good. 
     '''
     Function binning a given data set along a given binning variable
     
@@ -242,6 +199,8 @@ def bin_data(data,bin_axis,bins,scantype='fly'):
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
         
     elif scantype == 'step':
+        # this is assuming that there is no jitter in the mono calibration.
+        # if there is jitter, then we will end up with bins that only have 1 or 2 counts. 
         scanvar,bin_counts = np.unique(bin_axis,return_counts=True)
         print(f'scanvar in bin_data {len(scanvar)}')
         bin_edges = scanvar
@@ -378,93 +337,93 @@ def avg_data(runs : list, proc_folder : str = '',proc_path : str = ''):
 # [\sigma_{\bar{x}} = \frac{1}{\sqrt{N}} \sqrt{\sum_{i=1}^{N} \sigma_i^2}]
    
 
-def avg_data_count(runs : list, proc_folder : str = '',proc_path : str = ''):
-    avg = {}
-    with h5py.File(proc_folder+f'{runs[0]:04d}.h5','r') as tmp:
-        keys = list(tmp.keys())
-        if 'counts_on' in keys:
-            counts_on = np.zeros(tmp['counts_on'].shape)
-            counts_off = np.zeros(tmp['counts_off'].shape)
-            laser = True
-        else:
-            counts = np.zeros(tmp['counts'].shape)
-            laser = False
+# def avg_data_count(runs : list, proc_folder : str = '',proc_path : str = ''):
+#     avg = {}
+#     with h5py.File(proc_folder+f'{runs[0]:04d}.h5','r') as tmp:
+#         keys = list(tmp.keys())
+#         if 'counts_on' in keys:
+#             counts_on = np.zeros(tmp['counts_on'].shape)
+#             counts_off = np.zeros(tmp['counts_off'].shape)
+#             laser = True
+#         else:
+#             counts = np.zeros(tmp['counts'].shape)
+#             laser = False
 
-        # print(keys)
-        for key in keys:
-            avg[key] = np.zeros(tmp[key].shape)
+#         # print(keys)
+#         for key in keys:
+#             avg[key] = np.zeros(tmp[key].shape)
 
-    i=0
-    for run in runs:
-        i=i+1
-        file = proc_folder+f'{run:04d}.h5'
+#     i=0
+#     for run in runs:
+#         i=i+1
+#         file = proc_folder+f'{run:04d}.h5'
 
-        #load processed data
-        with h5py.File(file,'r') as f:
-            # define count
-            if laser:
-                count_on = np.asarray(f['counts_on'])
-                count_off = np.asarray(f['counts_off'])
-                laser = True
-            else:
-                count = np.asarray(f['counts'])
+#         #load processed data
+#         with h5py.File(file,'r') as f:
+#             # define count
+#             if laser:
+#                 count_on = np.asarray(f['counts_on'])
+#                 count_off = np.asarray(f['counts_off'])
+#                 laser = True
+#             else:
+#                 count = np.asarray(f['counts'])
 
-            # do count-weighted averaging
-            for key in keys:
-                #####ZY_edits - 060126 - make the sum keys work
-                if key.endswith('sumSV') or key.endswith('sumI0'):
-                    if avg[key].shape == f[key].shape:
-                        avg[key] = avg[key] + np.asarray(f[key])
-                    else:
-                        print(f'Run {run} {key} shapes do not match')
-                    continue
+#             # do count-weighted averaging
+#             for key in keys:
+#                 #####ZY_edits - 060126 - make the sum keys work
+#                 if key.endswith('sumSV') or key.endswith('sumI0'):
+#                     if avg[key].shape == f[key].shape:
+#                         avg[key] = avg[key] + np.asarray(f[key])
+#                     else:
+#                         print(f'Run {run} {key} shapes do not match')
+#                     continue
 
-                if laser:
-                    if 'on' in key:
-                        count = count_on
-                    elif 'off' in key:
-                        count = count_off
-                else:
-                    count = count
+#                 if laser:
+#                     if 'on' in key:
+#                         count = count_on
+#                     elif 'off' in key:
+#                         count = count_off
+#                 else:
+#                     count = count
 
-                if avg[key].shape==f[key].shape:
-                    if len(avg[key].shape) == 1:
-                        avg[key] = avg[key] + np.asarray(f[key])*count
-                    else:
-                        avg[key] = avg[key] + np.asarray(f[key])*count[:,np.newaxis]
-                else:
-                    #FIXME: Here implement stuff for stitching
-                    print(f'Run {run} {key} shapes do not match')
-        # Sum counts per scanvar
-        if laser:
-            counts_on = counts_on + count_on
-            counts_off = counts_off + count_off
-            # print(counts_off)
+#                 if avg[key].shape==f[key].shape:
+#                     if len(avg[key].shape) == 1:
+#                         avg[key] = avg[key] + np.asarray(f[key])*count
+#                     else:
+#                         avg[key] = avg[key] + np.asarray(f[key])*count[:,np.newaxis]
+#                 else:
+#                     #FIXME: Here implement stuff for stitching
+#                     print(f'Run {run} {key} shapes do not match')
+#         # Sum counts per scanvar
+#         if laser:
+#             counts_on = counts_on + count_on
+#             counts_off = counts_off + count_off
+#             print(counts_off)
 
-        else:
-            counts = counts + count
-    # Divide by count per scanvar
-    for key in keys:
-        #####ZY_edits - 060126 - make the sum keys work
-        if key.endswith('sumSV') or key.endswith('sumI0'):
-            continue
-        if laser:
-            if 'on' in key:
-                if len(avg[key].shape) == 1:
-                    avg[key] = avg[key]/counts_on
-                else:
-                    avg[key] = avg[key]/counts_on[:,np.newaxis]
-            elif 'off' in key:
-                if len(avg[key].shape) == 1:
-                    avg[key] = avg[key]/counts_off
-                else:
-                    avg[key] = avg[key]/counts_off[:,np.newaxis]
-        else:
-            if len(avg[key].shape) == 1:
-                avg[key] = avg[key]/counts
-            else:
-                avg[key] = avg[key]/counts[:,np.newaxis]
-    return avg
+#         else:
+#             counts = counts + count
+#     # Divide by count per scanvar
+#     for key in keys:
+#         #####ZY_edits - 060126 - make the sum keys work
+#         if key.endswith('sumSV') or key.endswith('sumI0'):
+#             continue
+#         if laser:
+#             if 'on' in key:
+#                 if len(avg[key].shape) == 1:
+#                     avg[key] = avg[key]/counts_on
+#                 else:
+#                     avg[key] = avg[key]/counts_on[:,np.newaxis]
+#             elif 'off' in key:
+#                 if len(avg[key].shape) == 1:
+#                     avg[key] = avg[key]/counts_off
+#                 else:
+#                     avg[key] = avg[key]/counts_off[:,np.newaxis]
+#         else:
+#             if len(avg[key].shape) == 1:
+#                 avg[key] = avg[key]/counts
+#             else:
+#                 avg[key] = avg[key]/counts[:,np.newaxis]
+#     return avg
 
 #FIXME
 
@@ -480,7 +439,7 @@ def avg_data_count(runs : list, proc_folder : str = '',proc_path : str = ''):
 # * ( w_i ) are the weights.
 # * ( \sigma_i ) are the individual uncertainties for each measurement.
 
-
+# NOTE: JW comment 10/08/26: this function is not being used right now?
 def pixel2emi(pixel, dat, mono=[], calib=[], points=[], w_calib_line=10, plot=True):
     if calib == []:
         if mono == []:
@@ -492,36 +451,82 @@ def pixel2emi(pixel, dat, mono=[], calib=[], points=[], w_calib_line=10, plot=Tr
 
     return(emi,calib)
 
-def emi2ET(mono,emission,data,std,step):
-   
-    
-    Etrans_in = np.zeros(data.shape)
-    
-    for i in np.arange(len(mono)):
-        for j in np.arange(len(emission)):
-            Etrans_in[i,j] = mono[i]-emission[j]
-            
-            
-    Emin = np.max(np.min(Etrans_in))
-    Emax = np.min(np.max(Etrans_in))
-    
-    E_trans = np.arange(Emin,Emax+step,step)
-    
-    data_trans = np.zeros([len(mono), len(E_trans)])
-    std_trans = np.zeros([len(mono), len(E_trans)])
-    
-    for i in np.arange(len(E_trans)-1):
-        for ii in np.arange(len(mono)):
-            mask = np.logical_and(Etrans_in[ii,:] > E_trans[i],
-                      Etrans_in[ii,:] < E_trans[i+1])
-            N = len(data[ii, mask])
-            data_trans[ii,i] = np.nanmean(data[ii, mask])
-            std_trans[ii,i] = np.sqrt(np.sum(std[ii, mask]**2)) / N
-            
-    data_trans[np.isnan(data_trans)] = 0
-    std_trans[np.isnan(std_trans)] = 0
-            
-    return mono, E_trans, data_trans,std_trans
+
+# JW edits 10/08/26: fixed some bugs
+def emi2ET(mono, emission, data, std, step):
+    '''
+    Rebin a (mono, emission) map onto a (mono, energy transfer) grid.
+
+    Energy transfer for each pixel is mono - emission. Pixels are grouped into
+    energy-transfer bins of width `step`; each bin holds the mean of its pixels,
+    and its error is the error of that mean.
+
+    Parameters
+    ----------
+    mono : (n_mono,) incident energies [eV]
+    emission : (n_pix,) emission energy of each pixel [eV]
+    data : (n_mono, n_pix) map
+    std : (n_mono, n_pix) error of each map element
+    step : energy-transfer bin width [eV]
+
+    Returns
+    -------
+    mono : (n_mono,) unchanged
+    E_trans : (n_bins,) energy-transfer bin CENTERS [eV]
+    data_trans : (n_mono, n_bins) mean of the pixels in each bin, NaN if empty
+    std_trans : (n_mono, n_bins) error of that mean, NaN if empty
+    '''
+    mono = np.asarray(mono, dtype=float)
+    emission = np.asarray(emission, dtype=float)
+    data = np.asarray(data, dtype=float)
+    std = np.asarray(std, dtype=float)
+
+    # NOTE: energy transfer of every map element, (n_mono, n_pix):
+    #       row i is mono[i] minus the emission energy of each pixel
+    Etrans_in = mono[:, np.newaxis] - emission[np.newaxis, :]
+
+    # NOTE: full range covered by any mono row. Rows that do not reach the
+    #       ends of this range get NaN there, so they show as blank
+    Emin = np.min(Etrans_in)
+    Emax = np.max(Etrans_in)
+
+    # NOTE: explicit bin EDGES, starting at Emin and extending just past Emax
+    #       so every pixel falls inside some bin
+    n_bins = int(np.floor((Emax - Emin) / step)) + 1
+    edges = Emin + step * np.arange(n_bins + 1)
+
+    # NOTE: the returned axis is the bin CENTERS, so pcolor and the CIE cuts
+    #       place each bin at its middle, not its lower edge
+    E_trans = 0.5 * (edges[:-1] + edges[1:])
+
+    # NOTE: empty bins stay NaN, so they are blank in plots and skipped by
+    #       nansum in the CIE cuts, instead of counting as measured zeros
+    data_trans = np.full((len(mono), n_bins), np.nan)
+    std_trans = np.full((len(mono), n_bins), np.nan)
+
+    # NOTE: a pixel is usable only if both its value and its error are finite,
+    #       so the mean and its error are computed from the same pixels
+    is_valid = np.isfinite(data) & np.isfinite(std)
+
+    for row in range(len(mono)):
+        for b in range(n_bins):
+
+            # NOTE: half-open bin [edge_b, edge_b+1), so a pixel exactly on an
+            #       edge lands in one bin instead of none
+            in_bin = (Etrans_in[row] >= edges[b]) & (Etrans_in[row] < edges[b + 1])
+            usable = in_bin & is_valid[row]
+
+            n_pixels = usable.sum()
+            if n_pixels == 0:
+                continue
+
+            data_trans[row, b] = np.mean(data[row, usable])
+
+            # NOTE: error of the mean of n independent pixels,
+            #       sqrt(sum(std^2)) / n
+            std_trans[row, b] = np.sqrt(np.sum(std[row, usable]**2)) / n_pixels
+
+    return mono, E_trans, data_trans, std_trans
 
 def calib_emi(mono, dat, end_points_el, w_calib_line=5, plot=True):
     #FIXME
@@ -978,280 +983,493 @@ def get_PFY(rixs,std):
     return PFY, PFY_std
 
 
-def get_CIE(Ecie,width,Einc,data_trans,std_trans):
+def get_CIE(Ecie, width, Einc, data_trans, std_trans, return_info=False):
     '''
-    Obtain constant incident energy cut from data matrix with incident energy and energy transfer as axes
-    
+    Constant incident energy (CIE) cut from an (inc. energy, energy transfer) map.
+
+    Sums the mono rows within +-width bins of the row nearest Ecie, and adds
+    their errors in quadrature.
+
     Parameters
     ----------
-    
     Ecie : float
-    energy at which to take CIE cut
-
-    width : integer
-    how many pixels left and right of Ecie to include in CIE
-
-    Einc : array
-    incident energy axis
-
-    data_trans : array (mxn)
-    rixs data in a incident energy vs energy transfer matrix
-
-    std_trans : array (mxn)
-    standard deviation of rixs data in a incident energy vs energy transfer matrix
-
-
-    '''
-
-    inds = np.argmin(np.abs(Einc-Ecie))
-    CIE     = np.nansum(data_trans[inds-width:inds+width,:],axis=0)
-    CIE_std = np.sqrt(np.nansum(std_trans[inds-width:inds+width,:]**2, axis=0))
-    return CIE, CIE_std
-
-
-
-
-"""
-Automatic ROI finder for FIM diode waveforms (finalized).
-
-Input
------
-fim_wf : np.ndarray
-    (shots, channels, samples)  multi-channel  (averaged over shots), or
-    (shots, samples)            one channel     (averaged over shots), or
-    (samples,)                  one already-averaged template.
-    The LAST axis is always the time/sample axis.
-
-Per channel, the function:
-  1. Builds a high-SNR template by averaging over shots.
-  2. Auto-detects the BACKGROUND ROI: the flat region at the left edge, ending
-     a few samples BEFORE the signal first departs from baseline (so no real
-     signal leaks into the background).
-  3. Subtracts the background mean from the template.
-  4. Identifies the FIRST oscillation after the background: the first
-     significant zero-crossing-bounded excursion (0 -> peak -> 0), of EITHER
-     sign. This first oscillation must be NEGATIVE -- if it is positive the
-     channel is rejected with signal ROI = [0.0, 0.0]. If it is negative and
-     contains the most-negative sample of the trace, the SIGNAL ROI is that
-     oscillation traced to its bounding zero crossings (sub-sample, rounded to
-     0.1). Otherwise the channel is rejected with [0.0, 0.0].
-
-Returns
--------
-bg_rois     : list of [start, end] background windows, one per channel.
-signal_rois : list of [start, end] signal windows, one per channel
-              ([0.0, 0.0] when the first oscillation is not the deepest).
-"""
-
-import warnings
-
-import numpy as np
-
-
-def _first_sustained(mask, run=2):
-    """First index where `mask` is True for `run` consecutive samples."""
-    if run <= 1:
-        idx = np.flatnonzero(mask)
-        return int(idx[0]) if idx.size else None
-    win = np.convolve(mask.astype(int), np.ones(run, int), mode="valid")
-    hit = np.flatnonzero(win == run)
-    return int(hit[0]) if hit.size else None
-
-
-def _zero_between(y, a, b):
-    """Linearly interpolated zero crossing between samples a and b."""
-    ya, yb = float(y[a]), float(y[b])
-    if yb == ya:
-        return float(a)
-    return a + (-ya) / (yb - ya)
-
-
-def _channel_rois(trace, bg_seed=10, k=5.0, bg_margin=3, onset_frac=0.05,
-                  min_width=2, accept_frac=0.0):
-    """Background ROI + signal ROI + reason for one channel's averaged trace."""
-    trace = np.asarray(trace, dtype=float)
-    n = trace.size
-    finite = np.isfinite(trace)
-    if not finite.any():                   # dead / all-NaN channel
-        return [0.0, float(n - 1)], [0.0, 0.0], "dead_channel"
-    if not finite.all():                   # residual NaNs (a sample NaN in ALL
-        trace = trace.copy()               # shots): fill so argmin can't latch
-        trace[~finite] = np.median(trace[finite])   # onto a NaN
-
-    # ---- 2. background ROI: flat left region, ending before signal onset ----
-    seed = trace[:min(bg_seed, n)]
-    mu = float(seed.mean())
-    sigma = float(seed.std()) or 1e-12
-    peak = float(np.max(np.abs(trace - mu)))    # signal scale (peak |deviation|)
-
-    # A sample counts as signal only if it clears BOTH the noise floor (k*sigma)
-    # AND a fraction of the signal peak (onset_frac*peak). The second term means
-    # small bumps far below the signal -- e.g. 2-3 orders of magnitude down, not
-    # visible by eye -- stay part of the background instead of starting the ROI.
-    thr = max(k * sigma, onset_frac * peak)
-    onset = _first_sustained(np.abs(trace - mu) > thr, run=2)
-    if onset is None:                      # never leaves baseline -> no signal
-        return [0.0, float(n - 1)], [0.0, 0.0], "no_onset"
-    bg_end = max(onset - bg_margin, 1)
-    bg_roi = [0.0, float(bg_end)]
-
-    # ---- 3. subtract background mean ----
-    y = trace - float(trace[:bg_end].mean())
-    sigma_bg = float(trace[:bg_end].std()) or 1e-12
-    sig_thr = max(k * sigma_bg, onset_frac * peak)   # same floor for lobes
-
-    # ---- 4. first oscillation after background = first SIGNIFICANT lobe ----
-    # An oscillation is one zero-crossing-bounded excursion (0 -> peak -> 0).
-    # Collect significant lobes of EITHER sign, so a leading POSITIVE excursion
-    # is seen and rejected rather than silently skipped. Lobes narrower than
-    # `min_width` are dropped: a single-sample spike is a glitch, not an
-    # oscillation, and must not be allowed to count as the deepest feature.
-    cross = np.flatnonzero(y[:-1] * y[1:] < 0) + 1
-    bounds = np.concatenate(([0], cross, [n])).astype(int)
-    lobes = []                              # (start, end, peak_idx, sign)
-    for bi in range(len(bounds) - 1):
-        s, e = int(bounds[bi]), int(bounds[bi + 1]) - 1
-        if e < s or e < bg_end:             # skip anything inside the background
-            continue
-        if (e - s + 1) < min_width:         # skip single-sample spikes / glitches
-            continue
-        pk = s + int(np.argmax(np.abs(y[s:e + 1])))
-        if abs(y[pk]) > sig_thr:            # significant excursion (either sign)
-            lobes.append((s, e, pk, int(np.sign(y[pk]))))
-
-    if not lobes:
-        return bg_roi, [0.0, 0.0], "no_significant_lobe"
-
-    s0, e0, pk0, sign0 = lobes[0]           # THE first oscillation
-
-    # the first oscillation MUST be negative; a positive first lobe -> reject
-    if sign0 > 0:
-        return bg_roi, [0.0, 0.0], f"first_oscillation_positive(peak@{pk0})"
-
-    # Accept the first oscillation as the signal. By default (accept_frac=0.0)
-    # a deeper-but-later lobe -- ringing, a reflection, or a stray deep sample
-    # -- does NOT veto it. Set accept_frac > 0 to require the first oscillation
-    # to be at least that fraction as deep as the deepest negative lobe.
-    depth_first = abs(y[pk0])
-    depth_deepest = max(abs(y[pk]) for (s, e, pk, sg) in lobes if sg < 0)
-    if depth_first < accept_frac * depth_deepest:
-        return (bg_roi, [0.0, 0.0],
-                f"first_oscillation_too_shallow({depth_first / depth_deepest:.2f}"
-                f"<{accept_frac})")
-
-    # trace the first oscillation out to its bounding zero crossings (sub-sample)
-    left = _zero_between(y, s0 - 1, s0) if s0 > 0 else 0.0
-    right = _zero_between(y, e0, e0 + 1) if e0 < n - 1 else float(e0)
-    result = [int(round(left)), int(round(right))]
-    print(f"DEBUG _channel_rois returning: {result}, types: {type(result[0])}, {type(result[1])}")
-    return bg_roi, result, "ok"
-
-
-def find_fim_rois(fim_wf, bg_seed=10, k=5.0, bg_margin=3, onset_frac=0.05,
-                  min_width=2, accept_frac=0.0, verbose=False,
-                  return_reasons=False):
-    """Auto-find background and signal ROIs for every FIM channel.
-
-    Parameters
-    ----------
-    fim_wf    : waveforms. Accepted shapes:
-                  (shots, channels, samples) -> multi-channel, averaged over shots
-                  (shots, samples)           -> ONE channel, averaged over shots
-                  (samples,)                 -> one already-averaged template
-                The LAST axis must always be the time/sample axis.
-    bg_seed   : samples at the far left used to seed the baseline noise estimate.
-    k         : significance threshold in units of baseline sigma (used both for
-                signal-onset detection and for calling a lobe significant).
-    bg_margin : samples to back off before the onset when closing the background.
+        Incident energy at which to take the cut [eV].
+    width : int
+        Number of mono BINS on each side of the center row to include, so the
+        cut sums up to 2*width + 1 rows.
+    Einc : (n_mono,) incident energy axis
+    data_trans : (n_mono, n_ET) map
+    std_trans : (n_mono, n_ET) error map
+    return_info : bool
+        Also return a dict describing which rows were used.
 
     Returns
     -------
-    bg_rois, signal_rois : two lists of [start, end], one entry per channel.
+    CIE, CIE_std : (n_ET,)  NaN where no selected row has data
+    info : dict, only if return_info
+        rows       (lo, hi) row slice used
+        mono_range (first, last) incident energy of the rows used [eV]
+        n_rows     (n_ET,) number of rows contributing to each column
+        n_selected number of rows selected
+        n_rows_with_data  number of selected rows that have any data
+    '''
+    Einc = np.asarray(Einc, dtype=float)
+    data_trans = np.asarray(data_trans, dtype=float)
+    std_trans = np.asarray(std_trans, dtype=float)
+
+    # NOTE: width is a number of bins, so it must be a whole number >= 0
+    if width < 0 or int(width) != width:
+        raise ValueError(f'width must be a non-negative integer, got {width}')
+    width = int(width)
+
+    # NOTE: warn rather than silently cutting at the edge of the scan. Einc
+    #       holds bin centers, so allow half a bin beyond the outer centers
+    half_bin = 0.5 * np.nanmedian(np.abs(np.diff(Einc))) if len(Einc) > 1 else 0.0
+    if not (np.nanmin(Einc) - half_bin <= Ecie <= np.nanmax(Einc) + half_bin):
+        print(f'get_CIE: {Ecie} eV is outside the scan '
+              f'({np.nanmin(Einc):.2f}-{np.nanmax(Einc):.2f} eV), using the nearest edge')
+
+    center = int(np.nanargmin(np.abs(Einc - Ecie)))
+
+    # NOTE: symmetric window, center +- width, so 2*width + 1 rows. Clipped at
+    #       the ends of the scan; a negative start would otherwise wrap around
+    #       to the end of the array
+    lo = max(center - width, 0)
+    hi = min(center + width + 1, len(Einc))
+
+    rows_data = data_trans[lo:hi]
+    rows_std = std_trans[lo:hi]
+
+    # NOTE: a cell counts only if both value and error are finite, so the sum
+    #       and its error use the same rows
+    is_valid = np.isfinite(rows_data) & np.isfinite(rows_std)
+    n_rows = is_valid.sum(axis=0)
+
+    CIE = np.sum(np.where(is_valid, rows_data, 0.0), axis=0)
+    CIE_std = np.sqrt(np.sum(np.where(is_valid, rows_std, 0.0)**2, axis=0))
+
+    # NOTE: columns with no data in any selected row are NaN, not a measured 0
+    CIE[n_rows == 0] = np.nan
+    CIE_std[n_rows == 0] = np.nan
+
+    if not return_info:
+        return CIE, CIE_std
+
+    # NOTE: rows with any data at all. A row can be entirely NaN (an empty mono
+    #       bin), so "every row contributes" means every row that HAS data
+    n_rows_with_data = int(np.any(is_valid, axis=1).sum())
+
+    info = {
+        'rows': (lo, hi),
+        'mono_range': (Einc[lo], Einc[hi - 1]),
+        'n_rows': n_rows,
+        'n_selected': hi - lo,
+        'n_rows_with_data': n_rows_with_data,
+    }
+    return CIE, CIE_std, info
+
+
+# ====== JW added functions ==================
+
+# JW edit 9/16/26: added correlation filtering function 
+def filter_correlation(x, y, selection_mask=None,
+                       trim_method='tukey', trim_k=3.0, trim_axes='both', trim_pct=0.5,
+                       n_bins=20, sigma_thresh=3.0, min_pts_per_bin=20,
+                       n_iter=2, verbose=True):
     """
-    fim_wf = np.asarray(fim_wf, dtype=float)
-    if fim_wf.ndim == 1:                        # (samples,) -> one template
-        fim_wf = fim_wf[None, None, :]
-    elif fim_wf.ndim == 2:                      # (shots, samples) -> one channel
-        fim_wf = fim_wf[:, None, :]
-    elif fim_wf.ndim != 3:                      # expect (shots, channels, samples)
-        raise ValueError(f"fim_wf must be 1-3 dimensional, got {fim_wf.ndim}D.")
+    Filter shots that don't follow the linear I0/transmission correlation.
 
-    # Average over shots IGNORING NaNs. With a plain mean, a single NaN shot
-    # makes the whole channel-average NaN, np.argmin then lands on the NaN, and
-    # the channel is silently rejected as [0.0, 0.0].
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)   # all-NaN channels
-        template = np.nanmean(fim_wf, axis=0)             # (channels, samples)
+    Stage 1 — trim marginal extremes in value space (before any fit), so sparse
+              high-leverage points at the ends can't tilt the line toward themselves.
+    Stage 2 — fit a line to the survivors, then clip points whose residual is more
+              than sigma_thresh standard deviations from the mean residual. The
+              spread is computed once over ALL surviving points (no sub-binning),
+              which is appropriate when the correlation is tight and the residual
+              scatter is roughly uniform across the x-range.
 
-    n_channels, n_samples = template.shape
-
-    bg_rois, signal_rois, reasons = [], [], []
-    for ch in range(n_channels):
-        bg, sig, reason = _channel_rois(template[ch], bg_seed=bg_seed, k=k,
-                                        bg_margin=bg_margin, onset_frac=onset_frac,
-                                        min_width=min_width, accept_frac=accept_frac)
-        bg_rois.append(bg)
-        signal_rois.append(sig)
-        reasons.append(reason)
-    if return_reasons:
-        return bg_rois, signal_rois, reasons
-    return bg_rois, signal_rois
-def get_HERFD(E_emi,width,emi,data,std):
-    '''
-    Obtain constant energy transfer energy cut from data matrix with incident energy and energy transfer as axes
-    
     Parameters
     ----------
+    x, y : full-length arrays (e.g. I0 and transmission, one entry per shot)
+    selection_mask : full-length bool mask of shots to consider (mono & laser & ...).
+                     None = use every shot.
+    trim_method : 'tukey' (Q1-k*IQR .. Q3+k*IQR), 'percentile', or 'mad'
+    trim_k : Tukey/MAD multiplier. 1.5 = standard, 3.0 = conservative.
+    trim_axes : 'x', 'y', or 'both'
+    sigma_thresh : clip beyond this many standard deviations of the residuals
+    n_iter : max fit/clip iterations; exits early once the mask stops changing
+    n_bins, min_pts_per_bin : accepted for call-signature compatibility, unused.
+
+    Returns
+    -------
+    final_mask : full-length bool array, True = shot passed every stage
+    fit        : scipy linregress result from the final iteration
+    keep       : bool array over the *selected* subset (aligns with selected_idx)
+    info       : dict of bounds and per-stage counts
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    if selection_mask is None:
+        selection_mask = np.ones(x.size, dtype=bool)
+    selected_idx = np.flatnonzero(selection_mask)
+    x_sel, y_sel = x[selection_mask], y[selection_mask]
+    n_start = x_sel.size
+    if n_start == 0:
+        raise ValueError("selection_mask selects no shots")
+
+    # ------------------------------------------------------------------
+    # Stage 1: marginal (value-space) trimming — BEFORE the fit
+    # ------------------------------------------------------------------
+    axis_names = {'x': 'x', 'y': 'y', 'both': 'xy'}[trim_axes]
+    V = np.asarray({'x': [x_sel], 'y': [y_sel], 'both': [x_sel, y_sel]}[trim_axes])
+
+    if trim_method == 'tukey':
+        q1, q3 = np.percentile(V, [25, 75], axis=1)
+        iqr = q3 - q1
+        lo, hi = q1 - trim_k * iqr, q3 + trim_k * iqr
+    elif trim_method == 'percentile':
+        lo, hi = np.percentile(V, [trim_pct, 100 - trim_pct], axis=1)
+    elif trim_method == 'mad':
+        med = np.median(V, axis=1, keepdims=True)
+        spread = 1.4826 * np.median(np.abs(V - med), axis=1)
+        med = med.ravel()
+        lo, hi = med - trim_k * spread, med + trim_k * spread
+    else:
+        raise ValueError(f"unknown trim_method: {trim_method}")
+
+    keep = np.all((V >= lo[:, None]) & (V <= hi[:, None]), axis=0)
+    n_after_trim = int(keep.sum())
+    if n_after_trim < 2:
+        raise ValueError("trimming removed nearly everything — loosen trim_k")
+
+    # ------------------------------------------------------------------
+    # Stage 2: fit + global mean/std residual clipping
+    # ------------------------------------------------------------------
+    fit = None
+    resid_mean = resid_std = np.nan
+
+    for _ in range(n_iter):
+        fit = linregress(x_sel[keep], y_sel[keep])
+        resid = y_sel - (fit.slope * x_sel + fit.intercept)
+
+        # spread estimated from the surviving points only
+        resid_mean = np.mean(resid[keep])
+        resid_std  = np.std(resid[keep])
+
+        if resid_std == 0 or not np.isfinite(resid_std):
+            break                                   # degenerate — keep what we have
+
+        new_keep = keep & (np.abs(resid - resid_mean) < sigma_thresh * resid_std)
+
+        if new_keep.sum() < 2:                      # too aggressive — don't apply
+            break
+        if np.array_equal(new_keep, keep):
+            break                                   # converged
+        keep = new_keep
+
+    n_final = int(keep.sum())
+    info = {
+        'bounds': {ax: (float(l), float(h)) for ax, l, h in zip(axis_names, lo, hi)},
+        'n_selected': n_start,
+        'n_after_trim': n_after_trim,
+        'n_final': n_final,
+        'n_trimmed': n_start - n_after_trim,
+        'n_clipped': n_after_trim - n_final,
+        'pct_dropped': 100 * (n_start - n_final) / n_start,
+        'resid_mean': float(resid_mean),
+        'resid_std': float(resid_std),
+    }
+
+    if verbose:
+        print(f"dropped {n_start - n_final} / {n_start} shots "
+              f"({info['pct_dropped']:.2f}%)  "
+              f"slope={fit.slope:.4f}  r²={fit.rvalue**2:.4f}  "
+              f"resid_std={resid_std:.4g}")
+
+    final_mask = np.zeros(x.size, dtype=bool)
+    final_mask[selected_idx[keep]] = True
+    return final_mask, fit, keep, info
+
+
+
+
+def bin_scanvar(scanvar, bin_range, bin_config=None, scantype='fly',
+                verbose=False):
+    """
+    One binning function for every scan variable.
+
+    Example:
+        bin_idx, centers = bin_scanvar(det.mono, [696.7, 709.9], ['num_bins', 33])
     
-    E_emi : float
-    emission energy at which to take HERFD cut
+    example when used in combination with masks
+        det.masks.add('mono_bin_idx', bin_idx, note='33 uniform bins, 696.7-709.9 eV')
 
-    width : integer
-    how many pixels left and right of Ecie to include in HERFD
+        for i in range(len(centers)):
+            sel = m.laser_on & m.i0_finite & m.i0_above_floor & (m.mono_bin_idx == i)
+            datsum, unc, datmean, se = standard_error_IO(svls[sel])
 
-    Einc : array
-    incident energy axis
+    The index is a per-shot array like any other, so it composes with every mask
+    by plain numpy.  Adding a cut never means touching the binner.
 
-    data : array (mxn)
-    rixs data in a incident energy vs emission energy  matrix
-
-    std : array (mxn)
-    standard deviation of rixs data in a incident energy vs emission energy matrix
-
-
-    '''
-
-    inds = np.argmin(np.abs(emi-E_emi))
-    HERFD     = np.nansum(data[:,inds-width:inds+width],axis=1)
-    HERFD_std = np.sqrt(np.nansum(std[:,inds-width:inds+width]**2, axis=0))
-    return HERFD, HERFD_std
-
-def get_CET(Ecet,width,ET,data_trans,std_trans):
-    '''
-    Obtain constant energy transfer energy cut from data matrix with incident energy and energy transfer as axes
-    
     Parameters
     ----------
-    
-    Ecet : float
-    energy at which to take CET cut
+    scanvar : (n_frames,) array
+        Per-shot value of whatever is scanned: mono energy, delay, waveplate
+        angle.  Nothing here is specific to mono.
+    bin_range : (start, end)
+        Range to bin over, in scanvar units.
+    # -------------------------------------------------------------
+    bin_config : ['num_bins', int] or ['bin_edges', [e0, e1, ...]]
+        'num_bins'  : The number is the number of BINS; the n+1 edges are built here.
+        'bin_edges' : explicit edge positions, strictly increasing.  
+    # -------------------------------------------------------------
+    scantype : 'fly' or 'step'
 
-    width : integer
-    how many pixels left and right of Ecie to include in CET
+    Returns
+    -------
+    bin_idx : (n_frames,) int32
+        Bin number per shot, -1 for out of range. 
+    centers : (n_bins,) float
+        Centre of each bin: the new scan axis.
 
-    Einc : array
-    incident energy axis
+    Notes
+    -----
+    FIXME: A step scan with real encoder jitter breaks the np.unique assumption --
+    every shot is a distinct float and you get one bin per shot. maybe add it so that
+    can pass in explicit setpoints through bin_edges??
+    """
+    v = np.asarray(scanvar, dtype=float).squeeze()
+    if v.ndim != 1:
+        raise ValueError(f'scanvar must be 1-D per shot, got shape {v.shape}')
 
-    data_trans : array (mxn)
-    rixs data in a incident energy vs energy transfer matrix
+    lo, hi = float(bin_range[0]), float(bin_range[1])
+    if not hi > lo:
+        raise ValueError(f'bin_range must be increasing, got ({lo}, {hi})')
 
-    std_trans : array (mxn)
-    standard deviation of rixs data in a incident energy vs energy transfer matrix
+    # ---------------- edges ----------------
+    if scantype == 'step':
+        # unique setpoints are the CENTRES; edges at the midpoints between
+        # them, with the outer two mirroring the first and last half-step
+        centers = np.unique(v[np.isfinite(v) & (v >= lo) & (v <= hi)])
+        if centers.size == 0:
+            raise ValueError(f'no finite scanvar values inside bin_range '
+                             f'({lo}, {hi})')
+        else:
+            # mid are the points between the centers, and are the natural bin_edges
+            mid = 0.5 * (centers[1:] + centers[:-1])
+            # but mid does not account for the very first and very last edge, so we add those on
+            edges = np.concatenate([[2 * centers[0] - mid[0]], mid,
+                                    [2 * centers[-1] - mid[-1]]])
+
+    elif scantype == 'fly':
+        if bin_config is None or len(bin_config) < 2:
+            raise ValueError("scantype='fly' needs bin_config, either "
+                             "['num_bins', N] or ['bin_edges', [...]]")
+        kind, value = bin_config[0], bin_config[1]
+
+        if kind == 'num_bins':
+            n = int(value)
+            if n < 1:
+                raise ValueError(f'num_bins must be >= 1, got {n}')
+            edges = np.linspace(lo, hi, n + 1)   # n bins need n+1 edges
+
+        elif kind == 'bin_edges':
+            e = np.asarray(value, dtype=float).squeeze()
+            if e.ndim != 1 or e.size < 2:
+                raise ValueError('bin_edges needs a 1-D list of at least two '
+                                 'edge positions')
+            if np.any(np.diff(e) <= 0):
+                raise ValueError('bin_edges must be strictly increasing')
+            if e.size < 2:
+                raise ValueError(
+                    f'bin_range ({lo}, {hi}) contains fewer than two of the '
+                    f'given edges, so no complete bin survives')
+            edges = e
+
+        else:
+            raise ValueError(f"bin_config[0] must be 'num_bins' or "
+                             f"'bin_edges', got {kind!r}")
+
+        # create the bin centers based on the edges
+        centers = 0.5 * (edges[:-1] + edges[1:])
+
+    else:
+        raise ValueError(f"scantype must be 'fly' or 'step', got {scantype!r}")
+
+    # ---------------- assign ----------------
+    n_bins = len(centers)
+
+    # right=False -> half-open [edge_i, edge_i+1).  digitize returns 0 below
+    # the first edge and len(edges) above the last (and for NaN), so shifting
+    # down by one puts real bins at 0..n_bins-1 and everything else outside.
+    bin_idx = np.digitize(v, edges, right=False) - 1
+
+    # a shot exactly on the top edge would otherwise fall outside; the top
+    # bin is the one interval closed at both ends
+    bin_idx[v == edges[-1]] = n_bins - 1
+
+    bin_idx[(bin_idx < 0) | (bin_idx >= n_bins)] = -1
+    bin_idx = bin_idx.astype(np.int32)
+
+    if verbose:
+        counts = np.bincount(bin_idx[bin_idx >= 0], minlength=n_bins)
+        print(f'  bin_scanvar [{scantype}]: {n_bins} bins over '
+              f'{edges[0]:.6g}..{edges[-1]:.6g}, '
+              f'{int((bin_idx >= 0).sum())}/{v.size} shots binned')
+        empty = np.flatnonzero(counts == 0)
+        if empty.size:
+            print(f'    empty bins: {empty.tolist()}')
+
+    return bin_idx, centers
 
 
+
+##### JW edit 10/08/26: rewriting the average data function. this will handle the averaging of the images
+def avg_data_count(runs: list, proc_folder: str = '', proc_path: str = ''):
     '''
+    Count-weighted average of reduced SVLS runs (process_v2 schema).
 
-    inds = np.argmin(np.abs(ET-Ecet))
-    CET     = np.nansum(data_trans[:,inds-width:inds+width],axis=1)
-    CET_std = np.sqrt(np.nansum(std_trans[:,inds-width:inds+width]**2, axis=0))
-    return CET, CET_std
+    Parameters
+    ----------
+    runs : list of int
+        Run numbers to combine.
+    proc_folder : str
+        Folder prefix of the reduced files.
+    proc_path : str
+        Placeholder, currently unused.
+
+    Returns
+    -------
+    avg : dict
+        Same keys as the reduced files, combined across runs, plus 'runs'.
+    '''
+    if len(runs) == 0:
+        raise ValueError('avg_data_count: runs is empty')
+
+    # =================================================================
+    # 1. Use the first run to record which keys exist and their shapes
+    # =================================================================
+
+    with h5py.File(proc_folder + f'{runs[0]:04d}.h5', 'r') as first_file:
+        reference_shapes = {key: first_file[key].shape for key in first_file.keys()}
+
+    # =================================================================
+    # 2. Load every run and stack each key along a new run axis
+    # =================================================================
+
+    # NOTE: per_run[key] collects one array per run; after the loop each
+    #       entry becomes one array of shape (n_runs, *reference_shape)
+    per_run = {key: [] for key in reference_shapes}
+
+    for run in runs:
+        with h5py.File(proc_folder + f'{run:04d}.h5', 'r') as run_file:
+
+            # NOTE: a different key set means the file came from a different
+            #       version of the reduction, so stop instead of mixing them
+            if set(run_file.keys()) != set(reference_shapes):
+                raise KeyError(f'Run {run}: keys differ from run {runs[0]}')
+
+            for key, shape in reference_shapes.items():
+                # NOTE: a shape mismatch (different binning or pixel count)
+                #       would misalign bins, so it raises instead of skipping
+                if run_file[key].shape != shape:
+                    raise ValueError(f'Run {run} {key}: shape {run_file[key].shape} '
+                                     f'!= {shape} in run {runs[0]}')
+                
+                per_run[key].append(np.asarray(run_file[key][()], dtype=float))
+
+    stacked = {key: np.stack(arrays) for key, arrays in per_run.items()}
+
+    # NOTE: every run must sit on the same mono bins, so scanvar is checked
+    #       and copied, not averaged
+    scanvar = stacked['scanvar'][0]
+    if not np.allclose(stacked['scanvar'], scanvar, equal_nan=True):
+        raise ValueError('scanvar differs between runs')
+
+    avg = {'scanvar': scanvar, 'runs': np.asarray(runs)}
+
+    # =================================================================
+    # 3-5. For each (laser state, filter) group: weight by counts,
+    #      then average the signal and combine its error
+    # =================================================================
+
+    for state in ('on', 'off'):
+        for suffix in ('', '_filt'):
+
+            counts = stacked[f'counts_{state}{suffix}']      # (n_runs, n_mono)
+            i0_sum = stacked[f'i0_sum_{state}{suffix}']      # (n_runs, n_mono)
+
+            mean_key = f'axis_svls_{state}_mean{suffix}'
+            sos_key = f'axis_svls_{state}_sos{suffix}'
+
+            # NOTE: the sos maps are raw summed ADU, so each run's map and
+            #       error are divided by that run's summed I0 first, giving
+            #       a per-run ratio. The summed I0 is treated as exact.
+            #       The mean maps are already normalized per shot
+            with np.errstate(divide='ignore', invalid='ignore'):
+                sos_norm = stacked[sos_key] / i0_sum[:, :, np.newaxis]
+                sos_norm_error = stacked[sos_key + '_std'] / i0_sum[:, :, np.newaxis]
+
+            # NOTE: (signal, error) per output key, each (n_runs, n_mono, n_pix)
+            signals = {
+                mean_key: (stacked[mean_key], stacked[mean_key + '_std']),
+                sos_key:  (sos_norm,         sos_norm_error),
+            }
+
+            for key, (values, errors) in signals.items():
+
+                # ---- 3. weights from the counts ------------------------
+                # NOTE: counts are per mono bin, (n_runs, n_mono). Copy each
+                #       bin's count onto every pixel in that bin, so the
+                #       counts have the same shape as the map:
+                #       (n_runs, n_mono) -> (n_runs, n_mono, n_pix)
+                n_pix = values.shape[2]
+                counts_per_pixel = np.repeat(counts[:, :, np.newaxis], n_pix, axis=2)
+
+                # NOTE: an element counts in a run only if it has shots and
+                #       finite values. This drops empty bins and saturated
+                #       (NaN) pixels in that run alone, instead of turning
+                #       the whole average NaN
+                is_valid = (counts_per_pixel > 0) & np.isfinite(values) & np.isfinite(errors)
+
+                valid_counts = np.where(is_valid, counts_per_pixel, 0.0)
+                valid_values = np.where(is_valid, values, 0.0)
+                valid_errors = np.where(is_valid, errors, 0.0)
+
+                # NOTE: weights = counts / sum of counts over runs. Where no
+                #       run has data this is 0/0 = NaN, so the output is NaN
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    weights = valid_counts / valid_counts.sum(axis=0)
+
+                # ---- 4. weighted signal --------------------------------
+                avg[key] = np.sum(weights * valid_values, axis=0)
+
+                # ---- 5. error in quadrature ----------------------------
+                # NOTE: sqrt(sum(weight^2 * error^2)). For n equal runs
+                #       this gives error / sqrt(n)
+                avg[key + '_std'] = np.sqrt(np.sum((weights * valid_errors)**2, axis=0))
+
+            # NOTE: counts and summed I0 are totals, so they add up
+            avg[f'counts_{state}{suffix}'] = counts.sum(axis=0)
+            avg[f'i0_sum_{state}{suffix}'] = i0_sum.sum(axis=0)
+
+        # ---- fzp: (n_mono,), unfiltered only, no error key -------------
+        # NOTE: same count weighting, using the unfiltered counts
+        fzp = stacked[f'fzp_{state}']                        # (n_runs, n_mono)
+        counts = stacked[f'counts_{state}']                  # (n_runs, n_mono)
+
+        is_valid = (counts > 0) & np.isfinite(fzp)
+        valid_counts = np.where(is_valid, counts, 0.0)
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            weights = valid_counts / valid_counts.sum(axis=0)
+
+        avg[f'fzp_{state}'] = np.sum(weights * np.where(is_valid, fzp, 0.0), axis=0)
+
+    # =================================================================
+    # 6. Return
+    # =================================================================
+
+    return avg
+
+    

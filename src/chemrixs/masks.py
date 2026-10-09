@@ -15,9 +15,6 @@ the frame axis shoul have length of after "sort + roll" and "countmask" changes
 add() enforces the length, so an array accidentally built from an already-sliced source raises
 instead of silently misaligning.
 
-`frame_id` holds each surviving frame's position in the pre-countmask array,
-so a shot that looks wrong in a bin can be traced back to the raw file.
-
 BOOLEANS AND INDICES
 --------------------
 Both are just per-shot arrays and both go through add().  A bin index is an

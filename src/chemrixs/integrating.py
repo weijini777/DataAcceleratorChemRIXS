@@ -135,15 +135,21 @@ class Integrating():
                 setattr(det,'I0',I0)
                 delattr(det,'fim0')
                 delattr(det,'fim1')
+                delattr(det,'fim_0')
+                delattr(det,'fim_1')
             elif hasattr(det,'fim_0'):
                 I0 = det.fim0.copy()
                 setattr(det,'I0',I0)
                 delattr(det,'fim0')
+                delattr(det,'fim_0')
+                delattr(det,'fim_1')
             elif hasattr(det,'fim1'):
                 # JW edit 9/16/26: small typo of fim0 when should be fim1
                 I0 = det.fim1.copy()
                 setattr(det,'I0',I0)
                 delattr(det,'fim1')
+                delattr(det,'fim_0')
+                delattr(det,'fim_1')
                 
             # JW edits 9/17/26: add fzp processing
             if hasattr(det, 'fzp'): 

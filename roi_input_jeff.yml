@@ -21,6 +21,8 @@ mono_bin_cfg: ['num_bins', 35]
 ##############################################
 
 
+
+
 # bins: ['bin_edges', 
 #         [-2e-12,5e-12,30]] ## py run 1-146
 
@@ -61,6 +63,10 @@ emi_calib: [[1,87,-0.09767442, 738.974419],
             [87,146,-0.08936170, 735.308511],
             [146,192,-0.08400000, 733.700000],
             [192,253,-0.08571429, 734.557143]]
+
+##### JW edits 10/08/26: creating an overall emission calibration for all averaged runs
+emi_calib_all: [-0.08936170, 735.308511]
+###########################################
 
 #Defining ROIs for the different detectors
 # looking at Runs 13, 194 Fe2O3 scans
