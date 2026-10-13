@@ -11,7 +11,7 @@ expected_count: []
 #         # [392,402,40]] #['bin_width', 0.5e-12] #['Nbins', 15]
 
 bins: ['bin_edges', 
-        [696.5,710.5,36]]
+        [696.5,710.5,35]]
 
 
 ##### JW edits 9/16/26: added scanvariable binning inputs for mono bins
@@ -178,4 +178,10 @@ bg_run : [[88, 145, 86],
 ##### JW edits 9/17/26: correlation filtering settings
 corr_filter: {sigma_tresh: 2, 
               trim_tresh: 10}
+
+##### JW edits 10/13/26: per-run mono energy offsets [eV], ranges are [run_lo, run_hi)
+#       positive shift = that run's features sit at HIGHER mono energy
+#       runs not listed are unshifted
+mono_shift:
+  # - [112, 118, -0.12]
 

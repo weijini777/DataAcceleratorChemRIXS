@@ -332,9 +332,17 @@ class Integrating():
             # if mono-step 
             if self.scantype == 'mono':
                 scantype = 'step'
-            
+
+            ##### JW edits 10/13/26:
+            # NOTE: shift this run's mono energies onto the reference scale
+            #       before binning, so every run uses the same nominal bins and
+            #       the same scanvar. Only the bin assignment changes; det.mono
+            #       keeps the measured energies
+            mono_shift = get_mono_shift(self.run, self.yaml.get('mono_shift'))
+            setattr(det, 'mono_shift', mono_shift)
+
             # do the binning
-            scanvar_bin_idx_mask, centers = bin_scanvar(mono, bin_ranges,bin_cfg, scantype)
+            scanvar_bin_idx_mask, centers = bin_scanvar(mono - mono_shift, bin_ranges, bin_cfg, scantype)
         
         return scanvar_bin_idx_mask, centers
             

@@ -5,6 +5,7 @@ import dask.dataframe as dd
 import random
 
 from scipy.optimize import curve_fit
+from scipy.stats import linregress
 
 
 def sumchan_helper(raw_fims,rois):
@@ -268,7 +269,7 @@ def get_premirror_pitch(premirror_pitch):
     except:
         # This needs improving
         print('Add SP1K1:MONO:MMS:M_PI.RBV to epics config')
-        return 144506
+        return 143088
     
 def mono_energy(pitchG,pitchM2,stateG = 'LRG', fname='../mono_calib.yml'):
     '''Calculator for RIXS mono calibration. This is the same function as 
@@ -1323,6 +1324,36 @@ def bin_scanvar(scanvar, bin_range, bin_config=None, scantype='fly',
     return bin_idx, centers
 
 
+##### JW edits 10/13/26: get the mono shift for the runs that need to be shifted. 
+def get_mono_shift(run, mono_shift_cfg):
+    '''
+    Mono energy offset [eV] for one run, from the yaml 'mono_shift' table.
+
+    Parameters
+    ----------
+    run : int
+    mono_shift_cfg : list of [run_lo, run_hi, shift_eV], or None
+        Ranges are half-open, run_lo <= run < run_hi. A positive shift means
+        that run's features sit at HIGHER mono energy than the reference runs.
+
+    Returns
+    -------
+    shift : float   0.0 if no entry covers this run
+    '''
+    # NOTE: no table, or no matching entry -> the run defines the nominal axis
+    if not mono_shift_cfg:
+        return 0.0
+
+    matches = [float(shift) for lo, hi, shift in mono_shift_cfg if lo <= run < hi]
+
+    # NOTE: overlapping ranges would make the shift ambiguous, so stop
+    if len(matches) > 1:
+        raise ValueError(f'run {run} matches {len(matches)} mono_shift entries; '
+                         f'ranges must not overlap')
+
+    return matches[0] if matches else 0.0
+
+
 
 ##### JW edit 10/08/26: rewriting the average data function. this will handle the averaging of the images
 def avg_data_count(runs: list, proc_folder: str = '', proc_path: str = ''):
@@ -1387,6 +1418,11 @@ def avg_data_count(runs: list, proc_folder: str = '', proc_path: str = ''):
         raise ValueError('scanvar differs between runs')
 
     avg = {'scanvar': scanvar, 'runs': np.asarray(runs)}
+
+    ##### JW edits 10/13/26:
+    # NOTE: shift each run was binned with, kept so the average records it
+    if 'mono_shift' in stacked:
+        avg['mono_shift'] = stacked['mono_shift']
 
     # =================================================================
     # 3-5. For each (laser state, filter) group: weight by counts,
@@ -1471,5 +1507,4 @@ def avg_data_count(runs: list, proc_folder: str = '', proc_path: str = ''):
     # =================================================================
 
     return avg
-
     

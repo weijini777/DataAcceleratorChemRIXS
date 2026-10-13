@@ -276,6 +276,11 @@ class Reduced():
 
                 # same mono bin centers for both laser on and laser off
                 self.out['scanvar'] = axis_svls.mono_bin_centers
+
+                ##### JW edits 10/13/26:
+                # NOTE: record the shift this file was binned with, so Average
+                #       can tell whether the file still matches the yaml
+                self.out['mono_shift'] = np.asarray(axis_svls.mono_shift)
                         
                 # ============ Apply Correlation Filtering ========================
                 for i in range(num_bins):

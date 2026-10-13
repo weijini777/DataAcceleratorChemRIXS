@@ -112,14 +112,46 @@ class Average():
             self.save_avg()
 
 
+    ##### JW edits 10/13/26: re-reduce when the stored mono shift is out of date
     def check_reduce(self):
+        '''
+        Make sure every run has a reduced file binned with its current shift.
+
+        A run is (re)reduced when its file is missing, when the file has no
+        'mono_shift' (made before shifts existed), or when the stored shift
+        differs from the yaml 'mono_shift' table.
+        '''
+        mono_shift_cfg = self.yaml.get('mono_shift')
+
         for run in self.runs:
             proc_path = self.proc_path + f'{run:04d}.h5'
-            if os.path.isfile(proc_path) == False:
-                fname = self.raw_path + f'{run:04d}.h5'
-                tmp = Reduced(fname,self.bgpath,self.fyaml,self.bgyaml, 
-                        save=True,scantype=self.scantype,norm=self.norm)
-                self.scantype = tmp.data.scantype
+            expected_shift = get_mono_shift(run, mono_shift_cfg)
+
+            # NOTE: decide whether this run's file can be reused
+            if not os.path.isfile(proc_path):
+                reason = 'no reduced file'
+            else:
+                with h5py.File(proc_path, 'r') as f:
+                    if 'mono_shift' not in f:
+                        reason = 'file has no mono_shift (made before shifts)'
+                    else:
+                        stored_shift = float(f['mono_shift'][()])
+                        # NOTE: files are saved as float32, so compare with a
+                        #       tolerance instead of ==
+                        if np.isclose(stored_shift, expected_shift, rtol=0, atol=1e-6):
+                            reason = None
+                        else:
+                            reason = (f'stored shift {stored_shift:+.4f} eV, '
+                                      f'yaml says {expected_shift:+.4f} eV')
+
+            if reason is None:
+                continue
+
+            print(f'Run {run}: re-reducing ({reason})')
+            fname = self.raw_path + f'{run:04d}.h5'
+            tmp = Reduced(fname, self.bgpath, self.fyaml, self.bgyaml,
+                          save=True, scantype=self.scantype, norm=self.norm)
+            self.scantype = tmp.data.scantype
 
         
         return
@@ -932,3 +964,65 @@ class Average():
             plt.title(f'mono spectrum at τ ≈ {tcen[it]*1e15:.0f} fs')
             plt.tight_layout(); plt.show()
             return ecen, pfy_on
+    
+
+##### JW edits 10/13/26: per-run ground state spectra, a visual check of the runs
+    def plot_runs_ground_state(self, mode='sos', filter=False, savefig=False,
+                               transparent=True, figsize=(10,6), xlim=None):
+        """
+        Overlay the laser-off PFY of every run in this average, each normalized
+        to its own maximum, read from the existing reduced files.
+
+        Parameters
+        ----------
+        mode : 'mean' or 'sos'
+        filter : bool
+            Use the correlation-filtered maps ('_filt').
+        xlim : (min, max) or None
+            Incident energy range to show.
+        """
+        if mode not in ('mean', 'sos'):
+            raise ValueError(f"mode must be 'mean' or 'sos', got {mode!r}")
+        suffix = '_filt' if filter else ''
+        label = f'{mode}{" filtered" if filter else ""}'
+
+        # NOTE: one color per run, spread along a colormap in run order
+        colors = plt.get_cmap('viridis')(np.linspace(0, 1, len(self.runs)))
+
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+        for run, color in zip(self.runs, colors):
+            # NOTE: same location Reduced.save_dat writes to
+            with h5py.File(f'./proc/Run{run:04d}.h5', 'r') as f:
+                scanvar = np.asarray(f['scanvar'][()], dtype=float)
+                off_map = np.asarray(f[f'axis_svls_off_{mode}{suffix}'][()], dtype=float)
+                counts  = np.asarray(f[f'counts_off{suffix}'][()], dtype=float)
+                i0_sum  = np.asarray(f[f'i0_sum_off{suffix}'][()], dtype=float)
+
+            # NOTE: sos maps in the reduced file are raw summed ADU, so divide
+            #       by that bin's summed I0 first, as avg_data_count does
+            with np.errstate(divide='ignore', invalid='ignore'):
+                if mode == 'sos':
+                    off_map = off_map / i0_sum[:, np.newaxis]
+                pfy = np.nansum(off_map, axis=1)
+
+            # NOTE: empty mono bins are stored as 0; make them NaN so they are
+            #       not drawn as real zero intensity
+            pfy[counts == 0] = np.nan
+
+            # NOTE: each run scaled to its own maximum, so differences in total
+            #       intensity between runs do not hide the energy position
+            ax.plot(scanvar, pfy / np.nanmax(pfy), color=color, alpha=0.7, lw=1,
+                    label=f'run {run}')
+
+        ax.set_xlabel('inc. energy (eV)')
+        ax.set_ylabel('laser-off PFY (normalized)')
+        ax.legend(fontsize=7, ncol=2)
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        ax.set_title(f'Runs {self.runs[0]} to {self.runs[-1]}: ground state per run   [{label}]')
+
+        if savefig:
+            fig.savefig(f'figs/ground_state_runs_{self.runs[0]}_{self.runs[-1]}_'
+                        f'{mode}{suffix}.png',
+                        transparent=transparent, dpi=200, bbox_inches='tight')
